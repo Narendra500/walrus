@@ -1,0 +1,11 @@
+[package]
+name = "walrus"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.49.0", features = ["full"] }
+bytes = "1.11.0"
+memchr = "2.7.6"
+atoi = "2.0.0"
+itoa = "1.0.17"
