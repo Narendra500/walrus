@@ -37,6 +37,24 @@ pub enum Error {
 }
 
 impl Frame {
+    /// Push Frame::Simple(String) into an array frame.
+    /// Will `panic` if called by non array frame.
+    pub(crate) fn push_string(&mut self, string: String) {
+        match self {
+            Frame::Array(frame) => frame.push(Frame::Simple(string)),
+            _ => panic!("not an array frame"),
+        }
+    }
+
+    /// Push Frame::Bulk(Bytes) into an array frame.
+    /// Will `panic` if called by non array frame.
+    pub(crate) fn push_bulk(&mut self, bytes: Bytes) {
+        match self {
+            Frame::Array(frame) => frame.push(Frame::Bulk(bytes)),
+            _ => panic!("not an array frame"),
+        }
+    }
+
     /// Check if entire message can be decoded from 'src'
     pub fn check(src: &mut Cursor<&[u8]>) -> Result<(), Error> {
         match get_u8(src)? {
