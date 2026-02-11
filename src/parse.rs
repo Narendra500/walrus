@@ -1,8 +1,7 @@
-use std::{fmt, vec};
-
-use bytes::Bytes;
-
 use crate::frame::Frame;
+use atoi::atoi;
+use bytes::Bytes;
+use std::{fmt, vec};
 
 /// For parsing a command.
 ///
@@ -72,8 +71,25 @@ impl Parse {
                 Err(_) => Err(format!("protocol error; invalid string").into()),
             },
             frame => {
-                Err(format!("protocol error; expected Simpled or Bulk frame, got {frame:?}").into())
+                Err(format!("protocol error; expected Simple or Bulk frame, got {frame:?}").into())
             }
+        }
+    }
+
+    /// Returns next array entry as u64.
+    ///
+    /// error is returned if next entry can't be represented as u64.
+    pub(crate) fn next_int(&mut self) -> Result<u64, ParseError> {
+        match self.next()? {
+            // Simple and Bulk can be parse to u64, error is returned if parsing fails.
+            Frame::Simple(data) => {
+                atoi::<u64>(data.as_bytes()).ok_or_else(|| "protocol error; invalid number".into())
+            }
+            Frame::Bulk(data) => {
+                atoi::<u64>(&data).ok_or_else(|| "protocol error; invalid number".into())
+            }
+            Frame::Integer(int) => Ok(int),
+            frame => Err(format!("protocol error; expected Integer frame, got {frame:?}").into()),
         }
     }
 }
@@ -100,4 +116,3 @@ impl fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
-

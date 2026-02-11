@@ -1,6 +1,9 @@
 mod ping;
 pub use ping::Ping;
 
+mod set;
+pub use set::Set;
+
 use crate::{connection::Connection, frame::Frame, parse::Parse};
 
 pub enum Command {
