@@ -4,6 +4,9 @@ pub use ping::Ping;
 mod set;
 pub use set::Set;
 
+mod get;
+pub use get::Get;
+
 use crate::{connection::Connection, frame::Frame, parse::Parse};
 
 pub enum Command {

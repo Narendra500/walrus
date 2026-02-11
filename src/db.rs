@@ -79,7 +79,7 @@ impl Db {
     /// Insert key value pair into db.
     /// Optional expires_at determines the instant when key will expire.
     /// If key already exists, its old value is replaced.
-    pub(crate) fn set(&self, key: &str, value: Bytes, expire: Option<Duration>) {
+    pub(crate) fn set(&self, key: String, value: Bytes, expire: Option<Duration>) {
         let mut state = self.shared.state.lock().unwrap();
 
         let mut notify = false;
@@ -100,7 +100,7 @@ impl Db {
 
         // Insert pair into hashmap, returns previous entry if key already present.
         let prev = state.entries.insert(
-            key.to_string(),
+            key.clone(),
             Entry {
                 data: value,
                 expires_at,
@@ -110,13 +110,13 @@ impl Db {
         // If prev entry was present then remove its expiration to avoid data leak.
         if let Some(prev) = prev {
             if let Some(when) = prev.expires_at {
-                state.expirations.remove(&(when, key.to_string()));
+                state.expirations.remove(&(when, key.clone()));
             }
         }
 
         // Track the expiration of new entry.
         if let Some(when) = expires_at {
-            state.expirations.insert((when, key.to_string()));
+            state.expirations.insert((when, key));
         }
 
         // Release the Mutex before notifying the background task.

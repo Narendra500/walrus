@@ -1,5 +1,6 @@
 use crate::{
     Connection,
+    db::Db,
     frame::Frame,
     parse::{Parse, ParseError},
 };
@@ -62,11 +63,15 @@ impl Set {
         Ok(Set { key, value, expire })
     }
 
-    pub(crate) async fn execute(
-        &mut self,
-        db: &Db,
-        conn: &mut Connection,
-    ) -> Result<(), crate::Error> {
+    /// Execute the `Set` command, inserting the given key-value pair into `Db`.
+    /// "OK" response is written to `conn`.
+    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
+        db.set(self.key, self.value, self.expire);
+
+        let response = Frame::Simple("OK".to_string());
+        conn.write_frame(&response).await?;
+
+        Ok(())
     }
 
     /// Converts `Set` instance to `Frame`, consumes self.
