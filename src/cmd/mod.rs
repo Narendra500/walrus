@@ -7,10 +7,16 @@ pub use set::Set;
 mod get;
 pub use get::Get;
 
-use crate::{connection::Connection, frame::Frame, parse::Parse};
+mod rpush;
+pub use rpush::RPush;
+
+use crate::{connection::Connection, db::Db, frame::Frame, parse::Parse};
 
 pub enum Command {
     Ping(Ping),
+    Set(Set),
+    Get(Get),
+    RPush(RPush),
     Unknown(String),
 }
 
@@ -26,6 +32,9 @@ impl Command {
 
         let command = match &command_name[..] {
             "ping" => Command::Ping(Ping::parse_frames(&mut parse)?),
+            "set" => Command::Set(Set::parse_frames(&mut parse)?),
+            "get" => Command::Get(Get::parse_frame(&mut parse)?),
+            "rpush" => Command::RPush(RPush::parse_frames(&mut parse)?),
             _ => Command::Unknown(command_name),
         };
 
@@ -35,9 +44,12 @@ impl Command {
     /// Execute the command.
     ///
     /// The response is sent to client.
-    pub(crate) async fn execute(self, conn: &mut Connection) -> Result<(), crate::Error> {
+    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
         match self {
             Command::Ping(cmd) => cmd.execute(conn).await,
+            Command::Set(cmd) => cmd.execute(db, conn).await,
+            Command::Get(cmd) => cmd.execute(db, conn).await,
+            Command::RPush(cmd) => cmd.execute(db, conn).await,
             Command::Unknown(cmd) => {
                 let response = Frame::Error(format!("ERR unknown command {cmd}"));
                 conn.write_frame(&response).await?;

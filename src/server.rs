@@ -1,5 +1,6 @@
 use crate::Command;
 use crate::connection::Connection;
+use crate::db::{Db, DbDropGuard};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
@@ -8,6 +9,9 @@ use tokio::time;
 
 /// Tcp listening and initialization of per-connection state.
 struct Listener {
+    /// `DbDropGuard` -- when listener is dropped, the drop method on `DbDropGuard` is called.
+    /// This cleans up the background task for purging expired keys.
+    db_holder: DbDropGuard,
     listener: TcpListener,
     /// Limit the max number of connections.
     /// A `Semaphore` is used to limit the max number of connections. Permit is required
@@ -20,6 +24,7 @@ struct Listener {
 
 /// Per connection handler. Reads requests from `connection` and applies commands.
 struct Handler {
+    db: Db,
     connection: Connection,
 }
 
@@ -32,6 +37,7 @@ const MAX_CONNECTIONS: usize = 1000;
 pub async fn run(listener: TcpListener) {
     // Create a listener state instance.
     let mut server = Listener {
+        db_holder: DbDropGuard::new(),
         listener,
         limit_connections: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
     };
@@ -62,6 +68,7 @@ impl Listener {
 
             // Per connection handler.
             let mut handler = Handler {
+                db: self.db_holder.get_db(),
                 connection: Connection::new(socket, Some(32)),
             };
 
@@ -120,7 +127,7 @@ impl Handler {
 
             let cmd = Command::from_frame(frame)?;
 
-            cmd.execute(&mut self.connection).await?;
+            cmd.execute(&self.db, &mut self.connection).await?;
         }
     }
 }

@@ -8,9 +8,19 @@ use tokio::{
     time::{self, Duration, Instant},
 };
 
+/// Data stored in an entry.
+/// Can be Bytes, Simple String or an Vec<Data>
+#[derive(Clone)]
+pub enum Data {
+    Bytes(Bytes),
+    Array(Vec<Data>),
+    String(String),
+    Integer(u64),
+}
+
 /// Single entry in key-value store.
 struct Entry {
-    data: Bytes,
+    data: Data,
     expires_at: Option<Instant>,
 }
 
@@ -64,13 +74,16 @@ impl Db {
             background_task: Notify::new(),
         });
 
+        // Start the background task for purging expired keys passing shared Db state.
+        tokio::spawn(purge_expired_tasks(shared.clone()));
+
         Db { shared }
     }
 
     /// Get the value associated with a key.
     ///
     /// Returns `None` if no value is associated with the key.
-    pub(crate) fn get(&self, key: &str) -> Option<Bytes> {
+    pub(crate) fn get(&self, key: &str) -> Option<Data> {
         let state = self.shared.state.lock().unwrap();
         // clone here is shallow as data is stored using `Bytes`.
         state.entries.get(key).map(|entry| entry.data.clone())
@@ -79,7 +92,7 @@ impl Db {
     /// Insert key value pair into db.
     /// Optional expires_at determines the instant when key will expire.
     /// If key already exists, its old value is replaced.
-    pub(crate) fn set(&self, key: String, value: Bytes, expire: Option<Duration>) {
+    pub(crate) fn set(&self, key: String, value: Data, expire: Option<Duration>) {
         let mut state = self.shared.state.lock().unwrap();
 
         let mut notify = false;

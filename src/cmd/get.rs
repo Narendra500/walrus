@@ -1,4 +1,9 @@
-use crate::{Connection, db::Db, frame::Frame, parse::Parse};
+use crate::{
+    Connection,
+    db::{Data, Db},
+    frame::Frame,
+    parse::Parse,
+};
 
 /// Get the value of the key.
 pub struct Get {
@@ -28,12 +33,23 @@ impl Get {
     /// Execute the `Get` command to fetch the value for the key from the shared db.
     /// The value is written to `conn`.
     pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
-        let value = db.get(&self.key);
+        let maybe_data = db.get(&self.key);
 
-        // Extract value if present, else `Null` frame is sent.
-        let response = value.map(|value| Frame::Bulk(value)).unwrap_or(Frame::Null);
-        conn.write_frame(&response).await?;
+        let frame = match maybe_data {
+            Some(data) => match data {
+                Data::Bytes(b) => Frame::Bulk(b),
+                Data::String(s) => Frame::Bulk(s.into()),
+                Data::Integer(i) => Frame::Integer(i),
+                Data::Array(_) => {
+                    return Err(
+                        "ERR Operation against a key holding the wrong kind of value".into(),
+                    );
+                }
+            },
+            None => Frame::Null,
+        };
 
+        conn.write_frame(&frame).await.unwrap();
         Ok(())
     }
 

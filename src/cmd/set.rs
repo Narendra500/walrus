@@ -49,7 +49,7 @@ impl Set {
                 let secs = parse.next_int()?;
                 expire = Some(Duration::from_secs(secs));
             }
-            Ok(s) if s.to_lowercase() == "PX" => {
+            Ok(s) if s.to_uppercase() == "PX" => {
                 // Expiration in milliseconds, next value must be an integer.
                 let ms = parse.next_int()?;
                 expire = Some(Duration::from_millis(ms));
@@ -66,7 +66,7 @@ impl Set {
     /// Execute the `Set` command, inserting the given key-value pair into `Db`.
     /// "OK" response is written to `conn`.
     pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
-        db.set(self.key, self.value, self.expire);
+        db.set(self.key, crate::db::Data::Bytes(self.value), self.expire);
 
         let response = Frame::Simple("OK".to_string());
         conn.write_frame(&response).await?;

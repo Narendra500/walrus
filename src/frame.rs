@@ -6,6 +6,8 @@ use core::fmt;
 use std::string::FromUtf8Error;
 use std::{io::Cursor, num::TryFromIntError};
 
+use crate::db::Data;
+
 /// A frame in RESP.
 ///
 /// Size of each frame instance:
@@ -43,6 +45,23 @@ impl Frame {
         match self {
             Frame::Array(frame) => frame.push(Frame::Simple(string)),
             _ => panic!("not an array frame"),
+        }
+    }
+
+    /// Push `Data` into an array frame.
+    /// uses recursion to push nested arrays of `Data`.
+    /// Will `panic` if `data_vec` contains nested arrays.
+    pub(crate) fn push_data(&mut self, data_vec: Vec<Data>) {
+        for data in data_vec {
+            match data {
+                Data::String(data) => self.push_string(data),
+                Data::Bytes(data) => self.push_bulk(data),
+                Data::Integer(data) => self.push_int(data),
+                // Nested arrays are not supported.
+                Data::Array(_) => {
+                    panic!("Nested arrays are not supported.");
+                }
+            }
         }
     }
 

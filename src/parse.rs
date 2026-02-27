@@ -1,4 +1,4 @@
-use crate::frame::Frame;
+use crate::{db::Data, frame::Frame};
 use atoi::atoi;
 use bytes::Bytes;
 use std::{fmt, vec};
@@ -40,6 +40,28 @@ impl Parse {
     /// Get the next frame in the array, consumes the frame.
     fn next(&mut self) -> Result<Frame, ParseError> {
         self.frames.next().ok_or(ParseError::EndOfStream)
+    }
+
+    /// Try to parse all the elements left in the array.
+    /// Returns `Data` on success.
+    pub(crate) fn next_array(&mut self) -> Result<Vec<Data>, ParseError> {
+        let mut result = vec![];
+        while let Ok(frame) = self.next() {
+            match frame {
+                Frame::Simple(data) => result.push(Data::String(data)),
+                Frame::Bulk(data) => result.push(Data::Bytes(data)),
+                Frame::Integer(data) => result.push(Data::Integer(data)),
+                Frame::Error(err) => return Err(ParseError::Other(err.into())),
+                Frame::Null => {
+                    return Err(ParseError::Other("can't push null values in array".into()));
+                }
+                Frame::Array(_) => {
+                    result.push(Data::Array(self.next_array()?));
+                }
+            }
+        }
+
+        Ok(result)
     }
 
     /// Return the next array entry as raw bytes.
