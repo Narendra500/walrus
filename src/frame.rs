@@ -3,6 +3,7 @@
 
 use bytes::{Buf, Bytes};
 use core::fmt;
+use std::collections::VecDeque;
 use std::string::FromUtf8Error;
 use std::{io::Cursor, num::TryFromIntError};
 
@@ -24,7 +25,7 @@ use crate::db::Data;
 pub enum Frame {
     Simple(String),
     Error(String),
-    Integer(u64),
+    Integer(i64),
     Bulk(Bytes),
     Null,
     Array(Vec<Frame>),
@@ -39,6 +40,19 @@ pub enum Error {
 }
 
 impl Frame {
+    /// Push Frame into an array frame.
+    /// self needs to be an array frame.
+    /// Takes Simple, Bulk and Integer frames.
+    pub(crate) fn push(&mut self, frame: Frame) {
+        match frame {
+            Frame::Simple(string) => self.push_string(string),
+            Frame::Bulk(bytes) => self.push_bulk(bytes),
+            Frame::Integer(val) => self.push_int(val),
+            // Nested array's are not supported.
+            _ => unreachable!(),
+        }
+    }
+
     /// Push Frame::Simple(String) into an array frame.
     /// Will `panic` if called by non array frame.
     pub(crate) fn push_string(&mut self, string: String) {
@@ -51,7 +65,7 @@ impl Frame {
     /// Push `Data` into an array frame.
     /// uses recursion to push nested arrays of `Data`.
     /// Will `panic` if `data_vec` contains nested arrays.
-    pub(crate) fn push_data(&mut self, data_vec: Vec<Data>) {
+    pub(crate) fn push_data(&mut self, data_vec: VecDeque<Data>) {
         for data in data_vec {
             match data {
                 Data::String(data) => self.push_string(data),
@@ -76,7 +90,7 @@ impl Frame {
 
     /// Push Frame::Integer(u64) into an array frame.
     /// Will `panic` if called by non array frame.
-    pub(crate) fn push_int(&mut self, val: u64) {
+    pub(crate) fn push_int(&mut self, val: i64) {
         match self {
             Frame::Array(frame) => frame.push(Frame::Integer(val)),
             _ => panic!("not an array frame"),
@@ -239,12 +253,12 @@ fn skip(src: &mut Cursor<&[u8]>, n: usize) -> Result<(), Error> {
 }
 
 /// Read a CRLF terminated decimal.
-fn get_decimal(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
+fn get_decimal(src: &mut Cursor<&[u8]>) -> Result<i64, Error> {
     use atoi::atoi;
 
     let line = get_line(src)?;
 
-    atoi::<u64>(line).ok_or_else(|| "protocol error; invalid frame format".into())
+    atoi::<i64>(line).ok_or_else(|| "protocol error; invalid frame format".into())
 }
 
 /// Get all bytes until next CRLF.
@@ -305,9 +319,48 @@ impl fmt::Display for Frame {
     }
 }
 
+impl From<Data> for Frame {
+    fn from(src: Data) -> Frame {
+        match src {
+            Data::Integer(val) => Frame::Integer(val),
+            Data::Bytes(val) => Frame::Bulk(val),
+            Data::String(val) => Frame::Simple(val),
+            // NOTE: This will flatten nested array's.
+            Data::Array(arr) => {
+                let mut frame = Frame::array();
+                for item in arr.iter() {
+                    frame.push(Frame::from(item.clone()));
+                }
+                frame
+            }
+        }
+    }
+}
+
 impl From<FromUtf8Error> for Error {
     fn from(_src: FromUtf8Error) -> Error {
         "protocol error; invalid framte format".into()
+    }
+}
+
+impl TryFrom<Frame> for Data {
+    type Error = String;
+    fn try_from(src: Frame) -> Result<Self, Self::Error> {
+        match src {
+            Frame::Simple(string) => Ok(Data::String(string)),
+            Frame::Bulk(bytes) => Ok(Data::Bytes(bytes)),
+            Frame::Integer(val) => Ok(Data::Integer(val)),
+            // NOTE: This will flatten nested arrays.
+            Frame::Array(arr) => {
+                let mut data_vec = VecDeque::with_capacity(arr.len());
+                for frame in arr.into_iter() {
+                    data_vec.push_back(Data::try_from(frame)?);
+                }
+                Ok(Data::Array(data_vec))
+            }
+            Frame::Error(err) => Err(err.into()),
+            Frame::Null => Err("Null not allowed for DB value.".into()),
+        }
     }
 }
 

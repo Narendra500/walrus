@@ -1,7 +1,7 @@
 use crate::{db::Data, frame::Frame};
 use atoi::atoi;
 use bytes::Bytes;
-use std::{fmt, vec};
+use std::{collections::VecDeque, fmt, vec};
 
 /// For parsing a command.
 ///
@@ -44,19 +44,19 @@ impl Parse {
 
     /// Try to parse all the elements left in the array.
     /// Returns `Data` on success.
-    pub(crate) fn next_array(&mut self) -> Result<Vec<Data>, ParseError> {
-        let mut result = vec![];
+    pub(crate) fn next_array(&mut self) -> Result<VecDeque<Data>, ParseError> {
+        let mut result = VecDeque::new();
         while let Ok(frame) = self.next() {
             match frame {
-                Frame::Simple(data) => result.push(Data::String(data)),
-                Frame::Bulk(data) => result.push(Data::Bytes(data)),
-                Frame::Integer(data) => result.push(Data::Integer(data)),
+                Frame::Simple(data) => result.push_back(Data::String(data)),
+                Frame::Bulk(data) => result.push_back(Data::Bytes(data)),
+                Frame::Integer(data) => result.push_back(Data::Integer(data)),
                 Frame::Error(err) => return Err(ParseError::Other(err.into())),
                 Frame::Null => {
                     return Err(ParseError::Other("can't push null values in array".into()));
                 }
                 Frame::Array(_) => {
-                    result.push(Data::Array(self.next_array()?));
+                    result.push_back(Data::Array(self.next_array()?));
                 }
             }
         }
@@ -98,17 +98,17 @@ impl Parse {
         }
     }
 
-    /// Returns next array entry as u64.
+    /// Returns next array entry as i64.
     ///
     /// error is returned if next entry can't be represented as u64.
-    pub(crate) fn next_int(&mut self) -> Result<u64, ParseError> {
+    pub(crate) fn next_int(&mut self) -> Result<i64, ParseError> {
         match self.next()? {
-            // Simple and Bulk can be parse to u64, error is returned if parsing fails.
+            // Simple and Bulk can be parse to i64, error is returned if parsing fails.
             Frame::Simple(data) => {
-                atoi::<u64>(data.as_bytes()).ok_or_else(|| "protocol error; invalid number".into())
+                atoi::<i64>(data.as_bytes()).ok_or_else(|| "protocol error; invalid number".into())
             }
             Frame::Bulk(data) => {
-                atoi::<u64>(&data).ok_or_else(|| "protocol error; invalid number".into())
+                atoi::<i64>(&data).ok_or_else(|| "protocol error; invalid number".into())
             }
             Frame::Integer(int) => Ok(int),
             frame => Err(format!("protocol error; expected Integer frame, got {frame:?}").into()),

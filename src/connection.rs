@@ -117,7 +117,7 @@ impl Connection {
         match frame {
             Frame::Array(val) => {
                 self.stream.write_u8(b'*').await?;
-                self.write_decimal(val.len() as u64).await?;
+                self.write_decimal(val.len() as i64).await?;
 
                 let iter = val.iter();
 
@@ -159,7 +159,7 @@ impl Connection {
                 let message_len = message.len();
 
                 self.stream.write_u8(b'$').await?;
-                self.write_decimal(message_len as u64).await?;
+                self.write_decimal(message_len as i64).await?;
                 self.stream.write_all(message).await?;
                 self.stream.write_all(b"\r\n").await?;
             }
@@ -169,7 +169,7 @@ impl Connection {
     }
 
     /// Writes a decimal frame to the stream.
-    pub async fn write_decimal(&mut self, val: u64) -> io::Result<()> {
+    pub async fn write_decimal(&mut self, val: i64) -> io::Result<()> {
         use itoa;
         // using itoa crate for better performance than std::fmt
         let mut buf = itoa::Buffer::new();

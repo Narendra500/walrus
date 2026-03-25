@@ -10,6 +10,18 @@ pub use get::Get;
 mod rpush;
 pub use rpush::RPush;
 
+mod lpush;
+pub use lpush::LPush;
+
+mod lpop;
+pub use lpop::LPop;
+
+mod llen;
+pub use llen::LLen;
+
+mod lrange;
+pub use lrange::LRange;
+
 use crate::{connection::Connection, db::Db, frame::Frame, parse::Parse};
 
 pub enum Command {
@@ -17,6 +29,10 @@ pub enum Command {
     Set(Set),
     Get(Get),
     RPush(RPush),
+    LPush(LPush),
+    LPop(LPop),
+    LLen(LLen),
+    LRange(LRange),
     Unknown(String),
 }
 
@@ -35,6 +51,10 @@ impl Command {
             "set" => Command::Set(Set::parse_frames(&mut parse)?),
             "get" => Command::Get(Get::parse_frame(&mut parse)?),
             "rpush" => Command::RPush(RPush::parse_frames(&mut parse)?),
+            "lpush" => Command::LPush(LPush::parse_frames(&mut parse)?),
+            "lpop" => Command::LPop(LPop::parse_frames(&mut parse)?),
+            "llen" => Command::LLen(LLen::parse_frames(&mut parse)?),
+            "lrange" => Command::LRange(LRange::parse_frame(&mut parse)?),
             _ => Command::Unknown(command_name),
         };
 
@@ -50,6 +70,10 @@ impl Command {
             Command::Set(cmd) => cmd.execute(db, conn).await,
             Command::Get(cmd) => cmd.execute(db, conn).await,
             Command::RPush(cmd) => cmd.execute(db, conn).await,
+            Command::LPush(cmd) => cmd.execute(db, conn).await,
+            Command::LPop(cmd) => cmd.execute(db, conn).await,
+            Command::LLen(cmd) => cmd.execute(db, conn).await,
+            Command::LRange(cmd) => cmd.execute(db, conn).await,
             Command::Unknown(cmd) => {
                 let response = Frame::Error(format!("ERR unknown command {cmd}"));
                 conn.write_frame(&response).await?;

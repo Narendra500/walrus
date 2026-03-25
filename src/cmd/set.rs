@@ -47,12 +47,12 @@ impl Set {
             Ok(s) if s.to_uppercase() == "EX" => {
                 // Expiration in seconds, next value must be an integer.
                 let secs = parse.next_int()?;
-                expire = Some(Duration::from_secs(secs));
+                expire = Some(Duration::from_secs(secs as u64));
             }
             Ok(s) if s.to_uppercase() == "PX" => {
                 // Expiration in milliseconds, next value must be an integer.
                 let ms = parse.next_int()?;
-                expire = Some(Duration::from_millis(ms));
+                expire = Some(Duration::from_millis(ms as u64));
             }
             Ok(_) => return Err("walrus only supports expiration option for `SET`".into()),
             // No options specified for `SET`, no expiration is set.
@@ -87,7 +87,7 @@ impl Set {
             // 2. SET key value PX milliseconds
             // The later is used here for greater precision.
             frame.push_string(String::from("px"));
-            frame.push_int(ms.as_millis() as u64);
+            frame.push_int(ms.as_millis() as i64);
         }
 
         frame

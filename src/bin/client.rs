@@ -5,7 +5,7 @@ use walrus::client::Client;
 
 #[tokio::main]
 async fn main() {
-    let mut client = Client::connect("localhost:6379").await.unwrap();
+    let mut client = Client::connect("localhost:6379", Some(32)).await.unwrap();
 
     let set = client
         .set(

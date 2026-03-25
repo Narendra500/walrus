@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, VecDeque},
     sync::{Arc, Mutex},
 };
 use tokio::{
@@ -8,14 +8,17 @@ use tokio::{
     time::{self, Duration, Instant},
 };
 
+use crate::frame::Frame;
+
 /// Data stored in an entry.
 /// Can be Bytes, Simple String or an Vec<Data>
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Data {
     Bytes(Bytes),
-    Array(Vec<Data>),
+    /// VecDeque allowing O(1) push and pop operations at both ends of the list.
+    Array(VecDeque<Data>),
     String(String),
-    Integer(u64),
+    Integer(i64),
 }
 
 /// Single entry in key-value store.
@@ -60,6 +63,20 @@ pub(crate) struct Db {
 /// purge task to shutdown when this struct is dropped.
 pub(crate) struct DbDropGuard {
     db: Db,
+}
+
+impl Data {
+    /// Try to convert `Frame` to `Vec<Data>`.
+    pub(crate) fn frame_to_data_vec(frame: Frame) -> Result<Vec<Data>, crate::Error> {
+        match frame {
+            Frame::Array(arr) => arr
+                .into_iter()
+                .map(Data::try_from)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into),
+            other => Ok(vec![Data::try_from(other)?]),
+        }
+    }
 }
 
 impl Db {
