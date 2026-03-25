@@ -57,6 +57,7 @@ impl LPop {
                     if count < 0 {
                         conn.write_frame(&Frame::Error(String::from("ERR value is out of range")))
                             .await?;
+                        return Ok(());
                     }
                     // If count is zero, then return an empty array.
                     if count == 0 {

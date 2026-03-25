@@ -63,9 +63,10 @@ impl RPush {
                 }
                 // The data corresponding to `list_key` is not an array.
                 _ => {
-                    return Err(
+                    conn.write_frame(&Frame::Error(
                         "WRONGTYPE Operation against a key holding the wrong kind of value".into(),
-                    );
+                    ))
+                    .await?;
                 }
             }
         }

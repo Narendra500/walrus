@@ -101,9 +101,10 @@ impl LRange {
                 }
                 // Data associated with the given key is not a list.
                 _ => {
-                    return Err(
+                    conn.write_frame(&Frame::Error(
                         "WRONGTYPE Operation against a key holding the wrong kind of value".into(),
-                    );
+                    ))
+                    .await?;
                 }
             }
         }
