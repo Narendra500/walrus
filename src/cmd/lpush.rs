@@ -63,6 +63,9 @@ impl LPush {
                     let list_len = list.len();
                     let frame = Frame::Integer(list_len as i64);
                     conn.write_frame(&frame).await.unwrap();
+
+                    // Notify any clients waiting on the key.
+                    db.notify_blocked(&self.list_key);
                 }
                 // The data corresponding to `list_key` is not an array.
                 _ => {
@@ -84,10 +87,13 @@ impl LPush {
             data.make_contiguous().reverse();
             // Get the length of the data before it is moved into the db.
             let list_len = data.len();
-            db.set(key, Data::Array(data), None);
+            db.set(key.clone(), Data::Array(data), None);
             // Return the length of array.
             let frame = Frame::Integer(list_len as i64);
             conn.write_frame(&frame).await.unwrap();
+
+            // Notify any clients waiting on the key.
+            db.notify_blocked(&key);
         }
 
         Ok(())

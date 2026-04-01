@@ -5,7 +5,7 @@ use tokio::net::{TcpStream, ToSocketAddrs};
 
 use crate::{
     Connection,
-    cmd::{Get, LLen, LPop, LPush, LRange, Ping, RPush, Set},
+    cmd::{BLPop, Get, LLen, LPop, LPush, LRange, Ping, RPush, Set},
     db::Data,
     frame::Frame,
 };
@@ -153,6 +153,39 @@ impl Client {
             match response {
                 // Frame::Null case throws error in the frame_to_data_vec function as `Data`
                 // doesn't support `Null` values.
+                Frame::Null => Ok(None),
+                value => Ok(Some(Data::frame_to_data_vec(value)?)),
+            }
+        } else {
+            Err("No response from server".into())
+        }
+    }
+
+    /// `BLPop` command to remove and return the first element of the first non empty list
+    /// with key in the order specified by the keys argument.
+    ///
+    /// Will block until one or more keys are available to pop from.
+    ///
+    /// #Arguments
+    /// - keys: list of keys to pop from
+    /// - timeout: timeout in seconds.
+    ///
+    /// A timeout of 0 can be used to block indefinitely.
+    ///
+    /// #Returns
+    /// Array with first element being the name of the key that was popped and second element
+    /// being the value of the key.
+    /// `None` if timeout was reached or if none of the keys were found.
+    pub async fn blpop(
+        &mut self,
+        keys: Vec<String>,
+        timeout: u64,
+    ) -> Result<Option<Vec<Data>>, crate::Error> {
+        let frame = BLPop::new(keys, timeout).into_frame();
+        self.connection.write_frame(&frame).await?;
+
+        if let Some(response) = self.connection.read_frame().await? {
+            match response {
                 Frame::Null => Ok(None),
                 value => Ok(Some(Data::frame_to_data_vec(value)?)),
             }

@@ -1,7 +1,7 @@
 use crate::{db::Data, frame::Frame};
 use atoi::atoi;
 use bytes::Bytes;
-use std::{collections::VecDeque, fmt, vec};
+use std::{collections::VecDeque, fmt, iter::Peekable, vec};
 
 /// For parsing a command.
 ///
@@ -9,7 +9,7 @@ use std::{collections::VecDeque, fmt, vec};
 /// each array frame one at a time.
 pub(crate) struct Parse {
     /// Iterator over array frames.
-    frames: vec::IntoIter<Frame>,
+    frames: Peekable<vec::IntoIter<Frame>>,
 }
 
 /// Parse errors. Only EndOfStream can be handled at runtime, all other errors should
@@ -33,7 +33,7 @@ impl Parse {
         };
 
         Ok(Parse {
-            frames: array_of_frames.into_iter(),
+            frames: array_of_frames.into_iter().peekable(),
         })
     }
 
@@ -42,8 +42,56 @@ impl Parse {
         self.frames.next().ok_or(ParseError::EndOfStream)
     }
 
+    /// Peek the next frame in the array, does not consume the frame.
+    fn peek(&mut self) -> Result<Frame, ParseError> {
+        self.frames.peek().cloned().ok_or(ParseError::EndOfStream)
+    }
+
+    /// Try to parse any number of strings and a timeout.
+    /// Returns (Vec<String>, u64) on success.
+    pub(crate) fn next_strings_with_timeout(&mut self) -> Result<(Vec<String>, u64), ParseError> {
+        let mut result = Vec::new();
+        while let Ok(frame) = self.next() {
+            match frame {
+                Frame::Simple(data) => result.push(data),
+                Frame::Integer(data) => {
+                    if result.is_empty() {
+                        return Err("protocol error; No keys specified in BLPOP".into());
+                    }
+                    // The timeout is the last element, so any more data is invalid.
+                    let timeout = data as u64;
+                    if self.peek().is_ok() {
+                        return Err(
+                            "protocol error; data item after timeout not allowed in BLPOP".into(),
+                        );
+                    };
+
+                    return Ok((result, timeout));
+                }
+                Frame::Bulk(bytes) => {
+                    let maybe_string = String::from_utf8(bytes.to_vec());
+                    match maybe_string {
+                        Ok(string) => result.push(string),
+                        Err(_) => {
+                            return Err("protocol error; invalid string in BLPOP".into());
+                        }
+                    };
+                }
+                Frame::Error(err) => return Err(ParseError::Other(err.into())),
+                Frame::Null => {
+                    return Err("protocol error; null not allowed in BLPOP".into());
+                }
+                Frame::Array(_) => {
+                    return Err("protocol error; array not allowed in BLPOP".into());
+                }
+            }
+        }
+
+        Err(ParseError::EndOfStream)
+    }
+
     /// Try to parse all the elements left in the array.
-    /// Returns `Data` on success.
+    /// Returns VecDeque of Data.
     pub(crate) fn next_array(&mut self) -> Result<VecDeque<Data>, ParseError> {
         let mut result = VecDeque::new();
         while let Ok(frame) = self.next() {

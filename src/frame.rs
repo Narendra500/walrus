@@ -21,7 +21,7 @@ use crate::db::Data;
 /// The largest variant is Bulk(Bytes) at ~32 bytes. It adds 1 byte for the enum tag. padding to align memory correctly.
 ///
 /// So, every single Frame instance will take up roughly 40 bytes in memory (32 + 1 + padding).
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Frame {
     Simple(String),
     Error(String),

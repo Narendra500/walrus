@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use futures::{StreamExt, stream::FuturesUnordered};
 use std::{
     collections::{BTreeSet, HashMap, VecDeque},
     sync::{Arc, Mutex},
@@ -40,6 +41,9 @@ struct State {
     /// Indicates if Db instance is shutting down. Background tasks are signaled to exit
     /// when this is true.
     shutdown: bool,
+
+    /// Map of keys to Notification triggers.
+    blocking_keys: HashMap<String, Arc<Notify>>,
 }
 
 /// Shared state is wrapped in Mutex.
@@ -87,6 +91,7 @@ impl Db {
                 entries: HashMap::new(),
                 expirations: BTreeSet::new(),
                 shutdown: false,
+                blocking_keys: HashMap::new(),
             }),
             background_task: Notify::new(),
         });
@@ -157,6 +162,75 @@ impl Db {
         if notify {
             self.shared.background_task.notify_one();
         }
+    }
+
+    /// Pop the first element of an array.
+    /// Returns `None` if the array is empty or key does not exist.
+    /// Returns `Err` if key holds a non-array value.
+    pub(crate) fn pop_front(&self, key: &str) -> Result<Option<Data>, crate::Error> {
+        let mut state = self.shared.state.lock().unwrap();
+        let maybe_entry = state.entries.get_mut(key.into());
+
+        if let Some(entry) = maybe_entry {
+            match entry.data {
+                Data::Array(ref mut arr) => {
+                    let data = arr.pop_front();
+                    if arr.is_empty() {
+                        state.entries.remove(key);
+                    }
+                    Ok(data)
+                }
+                _ => {
+                    Err("WRONGTYPE Operation against a key holding the wrong kind of value".into())
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Pop the last element of an array.
+    /// Returns `None` if the array is empty or key does not exist.
+    /// Returns `Err` if key holds a non-array value.
+    pub(crate) fn pop_back(&self, key: &str) -> Result<Option<Data>, crate::Error> {
+        let mut state = self.shared.state.lock().unwrap();
+        let maybe_entry = state.entries.get_mut(key.into());
+
+        if let Some(entry) = maybe_entry {
+            match entry.data {
+                Data::Array(ref mut arr) => {
+                    let data = arr.pop_back();
+                    if arr.is_empty() {
+                        state.entries.remove(key);
+                    }
+                    Ok(data)
+                }
+                _ => {
+                    Err("WRONGTYPE Operation against a key holding the wrong kind of value".into())
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Notify a connection waiting on a key.
+    pub(crate) fn notify_blocked(&self, key: &str) {
+        let state = self.shared.state.lock().unwrap();
+        state
+            .blocking_keys
+            .get(key)
+            .map(|notify| notify.notify_one());
+    }
+
+    /// Get or create a notifier for a key.
+    pub(crate) fn get_or_create_notifier(&self, key: &str) -> Arc<Notify> {
+        let mut state = self.shared.state.lock().unwrap();
+        state
+            .blocking_keys
+            .entry(key.to_string())
+            .or_insert_with(|| Arc::new(Notify::new()))
+            .clone()
     }
 
     /// Signals the background task to shutdown.
@@ -263,4 +337,15 @@ async fn purge_expired_tasks(shared: Arc<Shared>) {
     }
 
     println!("Purge background task shutdown")
+}
+
+/// Wait on any of the notifiers to be notified.
+pub(crate) async fn wait_on_any(notifiers: &[Arc<Notify>]) {
+    let mut futures: FuturesUnordered<_> = notifiers.iter().map(|n| n.notified()).collect();
+
+    if futures.is_empty() {
+        return;
+    }
+
+    futures.next().await;
 }

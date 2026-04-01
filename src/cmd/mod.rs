@@ -16,6 +16,9 @@ pub use lpush::LPush;
 mod lpop;
 pub use lpop::LPop;
 
+mod blpop;
+pub use blpop::BLPop;
+
 mod llen;
 pub use llen::LLen;
 
@@ -31,6 +34,7 @@ pub enum Command {
     RPush(RPush),
     LPush(LPush),
     LPop(LPop),
+    BLPop(BLPop),
     LLen(LLen),
     LRange(LRange),
     Unknown(String),
@@ -53,6 +57,7 @@ impl Command {
             "rpush" => Command::RPush(RPush::parse_frames(&mut parse)?),
             "lpush" => Command::LPush(LPush::parse_frames(&mut parse)?),
             "lpop" => Command::LPop(LPop::parse_frames(&mut parse)?),
+            "blpop" => Command::BLPop(BLPop::parse_frames(&mut parse)?),
             "llen" => Command::LLen(LLen::parse_frames(&mut parse)?),
             "lrange" => Command::LRange(LRange::parse_frame(&mut parse)?),
             _ => Command::Unknown(command_name),
@@ -72,6 +77,7 @@ impl Command {
             Command::RPush(cmd) => cmd.execute(db, conn).await,
             Command::LPush(cmd) => cmd.execute(db, conn).await,
             Command::LPop(cmd) => cmd.execute(db, conn).await,
+            Command::BLPop(cmd) => cmd.execute(db, conn).await,
             Command::LLen(cmd) => cmd.execute(db, conn).await,
             Command::LRange(cmd) => cmd.execute(db, conn).await,
             Command::Unknown(cmd) => {

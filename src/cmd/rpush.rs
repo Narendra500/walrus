@@ -60,6 +60,9 @@ impl RPush {
                     let list_len = list.len();
                     let frame = Frame::Integer(list_len as i64);
                     conn.write_frame(&frame).await.unwrap();
+
+                    // Notify any clients waiting on the key.
+                    db.notify_blocked(&self.list_key);
                 }
                 // The data corresponding to `list_key` is not an array.
                 _ => {
@@ -79,10 +82,13 @@ impl RPush {
             let vec_deque_data = VecDeque::from(vec_data);
             // Get the length of the data before it is moved into the db.
             let list_len = vec_deque_data.len();
-            db.set(key, Data::Array(vec_deque_data), None);
+            db.set(key.clone(), Data::Array(vec_deque_data), None);
             // Return the length of array.
             let frame = Frame::Integer(list_len as i64);
             conn.write_frame(&frame).await.unwrap();
+
+            // Notify any clients waiting on the key.
+            db.notify_blocked(&key);
         }
 
         Ok(())
