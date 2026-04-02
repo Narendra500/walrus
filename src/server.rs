@@ -1,6 +1,9 @@
-use crate::Command;
-use crate::connection::Connection;
-use crate::db::{Db, DbDropGuard};
+use crate::{
+    Command,
+    connection::Connection,
+    db::{Db, DbDropGuard},
+    errors::WalrusError,
+};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
@@ -47,7 +50,7 @@ pub async fn run(listener: TcpListener) {
 }
 
 impl Listener {
-    async fn run(&mut self) -> Result<(), crate::Error> {
+    async fn run(&mut self) -> Result<(), WalrusError> {
         println!("Accepting inbound connections at port 6379");
         loop {
             // Get a permit to accept the connection ensuring number of active connections
@@ -90,7 +93,7 @@ impl Listener {
     /// On success TcpStream is returned, else the execution of accept is paused for
     /// 1 second, then 2 seconds after second failed accept and so on doubling until
     /// 64 seconds. After 6th failed attempt to accept, an error is returned.
-    async fn accept(&mut self) -> Result<TcpStream, crate::Error> {
+    async fn accept(&mut self) -> Result<TcpStream, WalrusError> {
         // Initial sleep time if accept fails.
         let mut sleep_time = 1;
 
@@ -116,7 +119,7 @@ impl Listener {
 }
 
 impl Handler {
-    async fn run(&mut self) -> Result<(), crate::Error> {
+    async fn run(&mut self) -> Result<(), WalrusError> {
         loop {
             // Try to read a frame from the socket.
             let frame = match self.connection.read_frame().await? {

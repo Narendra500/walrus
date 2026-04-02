@@ -1,4 +1,4 @@
-use crate::parse::ParseError;
+use crate::{frame, parse::ParseError};
 use core::fmt;
 
 const WRONGTYPE_ERR: &str = "WRONGTYPE Operation against a key holding the wrong kind of value";
@@ -7,7 +7,7 @@ const CONNECTION_CLOSED_ERR: &str = "Connection closed";
 const END_OF_STREAM_ERR: &str = "End of stream";
 
 #[derive(Debug)]
-pub(crate) enum WalrusError {
+pub enum WalrusError {
     WrongType,
     EndOfStream,
     Internal(String),
@@ -58,5 +58,31 @@ impl From<ParseError> for WalrusError {
 impl From<&str> for WalrusError {
     fn from(err: &str) -> Self {
         WalrusError::Internal(err.to_string())
+    }
+}
+
+impl From<String> for WalrusError {
+    fn from(err: String) -> Self {
+        WalrusError::Internal(err)
+    }
+}
+
+impl Into<String> for WalrusError {
+    fn into(self) -> String {
+        match self {
+            WalrusError::WrongType => WRONGTYPE_ERR.into(),
+            WalrusError::EndOfStream => END_OF_STREAM_ERR.into(),
+            WalrusError::Internal(msg) => msg,
+            WalrusError::ConnectionClosed => CONNECTION_CLOSED_ERR.into(),
+        }
+    }
+}
+
+impl From<frame::Error> for WalrusError {
+    fn from(err: frame::Error) -> Self {
+        match err {
+            frame::Error::Incomplete => WalrusError::ConnectionClosed,
+            frame::Error::Other(err) => WalrusError::Internal(err.into()),
+        }
     }
 }

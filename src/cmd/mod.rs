@@ -27,7 +27,7 @@ pub use lrange::LRange;
 
 use crate::{connection::Connection, db::Db, errors::WalrusError, frame::Frame, parse::Parse};
 
-pub enum Command {
+pub(crate) enum Command {
     Ping(Ping),
     Set(Set),
     Get(Get),

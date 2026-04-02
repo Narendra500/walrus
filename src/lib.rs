@@ -1,19 +1,17 @@
 mod connection;
 
-pub use connection::Connection;
+pub(crate) use connection::Connection;
 
-pub mod cmd;
-pub use cmd::Command;
+pub(crate) mod cmd;
+pub(crate) use cmd::Command;
 
-pub mod frame;
-pub mod parse;
+pub(crate) mod frame;
+pub(crate) mod parse;
 
 pub mod server;
 
 pub mod client;
 
-pub mod db;
+pub(crate) mod db;
 
 pub mod errors;
-
-pub type Error = Box<dyn std::error::Error + Send + Sync>;

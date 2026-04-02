@@ -8,6 +8,7 @@ use std::string::FromUtf8Error;
 use std::{io::Cursor, num::TryFromIntError};
 
 use crate::db::Data;
+use crate::errors::WalrusError;
 
 /// A frame in RESP.
 ///
@@ -36,7 +37,7 @@ pub enum Frame {
 #[derive(Debug)]
 pub enum Error {
     Incomplete,
-    Other(crate::Error),
+    Other(WalrusError),
 }
 
 impl Frame {

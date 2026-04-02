@@ -7,6 +7,7 @@ use crate::{
     Connection,
     cmd::{BLPop, Get, LLen, LPop, LPush, LRange, Ping, RPush, Set},
     db::Data,
+    errors::WalrusError,
     frame::Frame,
 };
 
@@ -23,7 +24,7 @@ impl Client {
     pub async fn connect<T: ToSocketAddrs>(
         addr: T,
         capacity: Option<usize>,
-    ) -> Result<Client, crate::Error> {
+    ) -> Result<Client, WalrusError> {
         let socket = TcpStream::connect(addr).await?;
         let connection = Connection::new(socket, capacity);
         Ok(Client { connection })
@@ -32,7 +33,7 @@ impl Client {
     /// Send `Ping` command to the server.
     ///
     /// Returns the message provided if any given the server is running.
-    pub async fn ping(&mut self, msg: Option<Bytes>) -> Result<Bytes, crate::Error> {
+    pub async fn ping(&mut self, msg: Option<Bytes>) -> Result<Bytes, WalrusError> {
         let frame = Ping::new(msg).into_frame();
         self.connection.write_frame(&frame).await?;
 
@@ -49,7 +50,7 @@ impl Client {
     }
 
     /// `Get` the `value` associated with the `key`
-    pub async fn get(&mut self, key: String) -> Result<Option<Bytes>, crate::Error> {
+    pub async fn get(&mut self, key: String) -> Result<Option<Bytes>, WalrusError> {
         let frame = Get::new(key).into_frame();
         self.connection.write_frame(&frame).await?;
 
@@ -74,7 +75,7 @@ impl Client {
         key: String,
         value: Bytes,
         expire: Option<Duration>,
-    ) -> Result<String, crate::Error> {
+    ) -> Result<String, WalrusError> {
         let frame = Set::new(key, value, expire).into_frame();
         self.connection.write_frame(&frame).await?;
 
@@ -96,7 +97,7 @@ impl Client {
         &mut self,
         list_key: String,
         data: VecDeque<Data>,
-    ) -> Result<i64, crate::Error> {
+    ) -> Result<i64, WalrusError> {
         let frame = RPush::new(list_key, data).into_frame();
         self.connection.write_frame(&frame).await?;
 
@@ -120,7 +121,7 @@ impl Client {
         &mut self,
         list_key: String,
         data: VecDeque<Data>,
-    ) -> Result<i64, crate::Error> {
+    ) -> Result<i64, WalrusError> {
         let frame = LPush::new(list_key, data).into_frame();
         self.connection.write_frame(&frame).await?;
 
@@ -145,7 +146,7 @@ impl Client {
         &mut self,
         list_key: String,
         count: Option<i64>,
-    ) -> Result<Option<Vec<Data>>, crate::Error> {
+    ) -> Result<Option<Vec<Data>>, WalrusError> {
         let frame = LPop::new(list_key, count).into_frame();
         self.connection.write_frame(&frame).await?;
 
@@ -180,7 +181,7 @@ impl Client {
         &mut self,
         keys: Vec<String>,
         timeout: u64,
-    ) -> Result<Option<Vec<Data>>, crate::Error> {
+    ) -> Result<Option<Vec<Data>>, WalrusError> {
         let frame = BLPop::new(keys, timeout).into_frame();
         self.connection.write_frame(&frame).await?;
 
@@ -198,7 +199,7 @@ impl Client {
     /// Returns the length of the list if successful or `WRONGTYPE` error if data item with
     /// `list_key` is not a list.
     /// Returns `0` if no list with `list_key` is found.
-    pub async fn llen(&mut self, list_key: impl ToString) -> Result<i64, crate::Error> {
+    pub async fn llen(&mut self, list_key: impl ToString) -> Result<i64, WalrusError> {
         let frame = LLen::new(list_key).into_frame();
         self.connection.write_frame(&frame).await?;
 
@@ -221,13 +222,13 @@ impl Client {
     /// If `end_index` > list.len() it will be bound to list.len() - 1.
     /// `start_index` > `end_index` or `start_index` >= list.lend() will return an empty array.
     ///
-    /// Returns array of `Data` items if successful else `Error` is returned.
+    /// Returns array of `Data` items if successful else `WalrusError` is returned.
     pub async fn lrange(
         &mut self,
         list_key: String,
         start_index: i64,
         end_index: i64,
-    ) -> Result<Vec<Data>, crate::Error> {
+    ) -> Result<Vec<Data>, WalrusError> {
         let frame = LRange::new(list_key, start_index, end_index).into_frame();
         self.connection.write_frame(&frame).await?;
 

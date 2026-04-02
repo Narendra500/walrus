@@ -1,4 +1,4 @@
-use crate::{db::Data, frame::Frame};
+use crate::{db::Data, errors::WalrusError, frame::Frame};
 use atoi::atoi;
 use bytes::Bytes;
 use std::{collections::VecDeque, fmt, iter::Peekable, vec};
@@ -21,7 +21,7 @@ pub(crate) enum ParseError {
     /// Client closed the connection before parsing was completed.
     ConnectionClosed,
     /// All other errors
-    Other(crate::Error),
+    Other(WalrusError),
 }
 
 impl Parse {

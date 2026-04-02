@@ -4,6 +4,7 @@ use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 
+use crate::errors::WalrusError;
 use crate::frame::Frame;
 
 /// Send and receive `Frame` values from a remote peer.
@@ -45,7 +46,7 @@ impl Connection {
     /// Returns the frame parsed from `parse_frame` if frame is read successfuly
     /// else if connection is closed such that buffer was empty (no broken frame)
     /// then `None` is returned. Otherwise `Error` is returned.
-    pub async fn read_frame(&mut self) -> Result<Option<Frame>, crate::Error> {
+    pub async fn read_frame(&mut self) -> Result<Option<Frame>, WalrusError> {
         loop {
             // Try to parse a frame. If enough data is buffered a frame is returned.
             if let Some(frame) = self.parse_frame()? {
@@ -71,7 +72,7 @@ impl Connection {
     /// Tries to parse a frame from the buffer. Parsed data is returned and
     /// removed from buffer. Ok(None) is returned if not enough data is buffered
     /// yet. Err is returned in case of invalid frame format.
-    pub fn parse_frame(&mut self) -> Result<Option<Frame>, crate::Error> {
+    pub fn parse_frame(&mut self) -> Result<Option<Frame>, WalrusError> {
         // Wrap the cursor in buffer to track current location in the buffer.
         // Location starts from 0 when new cursor instance is created.
         let mut buf = Cursor::new(&self.buffer[..]);

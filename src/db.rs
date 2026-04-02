@@ -71,7 +71,7 @@ pub(crate) struct DbDropGuard {
 
 impl Data {
     /// Try to convert `Frame` to `Vec<Data>`.
-    pub(crate) fn frame_to_data_vec(frame: Frame) -> Result<Vec<Data>, crate::Error> {
+    pub(crate) fn frame_to_data_vec(frame: Frame) -> Result<Vec<Data>, WalrusError> {
         match frame {
             Frame::Array(arr) => arr
                 .into_iter()
@@ -190,7 +190,7 @@ impl Db {
     /// Pop the last element of an array.
     /// Returns `None` if the array is empty or key does not exist.
     /// Returns `Err` if key holds a non-array value.
-    pub(crate) fn pop_back(&self, key: &str) -> Result<Option<Data>, crate::Error> {
+    pub(crate) fn pop_back(&self, key: &str) -> Result<Option<Data>, WalrusError> {
         let mut state = self.shared.state.lock().unwrap();
         let maybe_entry = state.entries.get_mut(key.into());
 
