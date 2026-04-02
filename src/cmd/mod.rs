@@ -25,7 +25,7 @@ pub use llen::LLen;
 mod lrange;
 pub use lrange::LRange;
 
-use crate::{connection::Connection, db::Db, frame::Frame, parse::Parse};
+use crate::{connection::Connection, db::Db, errors::WalrusError, frame::Frame, parse::Parse};
 
 pub enum Command {
     Ping(Ping),
@@ -43,7 +43,7 @@ pub enum Command {
 impl Command {
     /// Parse a command from a frame.
     /// `Frame` must be of type Frame::Array(Frame)
-    pub fn from_frame(frame: Frame) -> Result<Command, crate::Error> {
+    pub fn from_frame(frame: Frame) -> Result<Command, WalrusError> {
         // Convert the frame into a frame iterator using `Parse`.
         let mut parse = Parse::new(frame)?;
 
@@ -69,7 +69,7 @@ impl Command {
     /// Execute the command.
     ///
     /// The response is sent to client.
-    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
+    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
         match self {
             Command::Ping(cmd) => cmd.execute(conn).await,
             Command::Set(cmd) => cmd.execute(db, conn).await,

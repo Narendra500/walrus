@@ -1,4 +1,5 @@
 mod connection;
+
 pub use connection::Connection;
 
 pub mod cmd;
@@ -12,5 +13,7 @@ pub mod server;
 pub mod client;
 
 pub mod db;
+
+pub mod errors;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;

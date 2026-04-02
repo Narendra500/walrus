@@ -18,6 +18,8 @@ pub(crate) struct Parse {
 pub(crate) enum ParseError {
     /// Frame fully consumed, no more values can be extracted.
     EndOfStream,
+    /// Client closed the connection before parsing was completed.
+    ConnectionClosed,
     /// All other errors
     Other(crate::Error),
 }
@@ -87,7 +89,8 @@ impl Parse {
             }
         }
 
-        Err(ParseError::EndOfStream)
+        // Connection closed before parsing was completed.
+        Err(ParseError::ConnectionClosed)
     }
 
     /// Try to parse all the elements left in the array.
@@ -181,6 +184,7 @@ impl fmt::Display for ParseError {
         match self {
             ParseError::EndOfStream => "protocol error; unexpected end of stream".fmt(f),
             ParseError::Other(err) => err.fmt(f),
+            ParseError::ConnectionClosed => "connection abruptly closed".fmt(f),
         }
     }
 }

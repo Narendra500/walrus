@@ -9,7 +9,7 @@ use tokio::{
     time::{self, Duration, Instant},
 };
 
-use crate::frame::Frame;
+use crate::{errors::WalrusError, frame::Frame};
 
 /// Data stored in an entry.
 /// Can be Bytes, Simple String or an Vec<Data>
@@ -167,7 +167,7 @@ impl Db {
     /// Pop the first element of an array.
     /// Returns `None` if the array is empty or key does not exist.
     /// Returns `Err` if key holds a non-array value.
-    pub(crate) fn pop_front(&self, key: &str) -> Result<Option<Data>, crate::Error> {
+    pub(crate) fn pop_front(&self, key: &str) -> Result<Option<Data>, WalrusError> {
         let mut state = self.shared.state.lock().unwrap();
         let maybe_entry = state.entries.get_mut(key.into());
 
@@ -180,9 +180,7 @@ impl Db {
                     }
                     Ok(data)
                 }
-                _ => {
-                    Err("WRONGTYPE Operation against a key holding the wrong kind of value".into())
-                }
+                _ => Err(WalrusError::WrongType),
             }
         } else {
             Ok(None)

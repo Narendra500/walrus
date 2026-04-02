@@ -7,6 +7,7 @@ use tokio::{sync::Notify, time::sleep};
 use crate::{
     Connection,
     db::{Db, wait_on_any},
+    errors::WalrusError,
     frame::Frame,
 };
 
@@ -40,7 +41,7 @@ impl BLPop {
     ///
     /// The array frame must contain at least three elements.
     /// BLPOP key [key ...] timeout
-    pub(crate) fn parse_frames(parse: &mut crate::parse::Parse) -> Result<Self, crate::Error> {
+    pub(crate) fn parse_frames(parse: &mut crate::parse::Parse) -> Result<Self, WalrusError> {
         let (keys, timeout) = parse.next_strings_with_timeout()?;
 
         Ok(Self::new(keys, timeout))
@@ -54,7 +55,7 @@ impl BLPop {
     ///
     /// Array frame with the name of the key that was popped and the corresponding value.
     /// Null frame is returned if the timeout is reached.
-    pub(crate) async fn execute(&self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
+    pub(crate) async fn execute(&self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
         let mut timer = if self.timeout > 0 {
             Box::pin(sleep(Duration::from_secs(self.timeout)).boxed())
         } else {
@@ -66,18 +67,21 @@ impl BLPop {
         loop {
             // Try LPOP for each key.
             for key in &self.keys {
-                let maybe_data = db.pop_front(key);
-                if let Ok(Some(data)) = maybe_data {
-                    let response = Frame::Array(vec![
-                        Frame::Bulk(Bytes::from(key.clone())),
-                        Frame::from(data),
-                    ]);
-
-                    conn.write_frame(&response).await?;
-                    return Ok(());
-                } else {
-                    let err = maybe_data.unwrap_err();
-                    if 
+                match db.pop_front(key) {
+                    Ok(Some(data)) => {
+                        conn.write_frame(&Frame::Array(vec![
+                            Frame::Bulk(Bytes::from(key.clone())),
+                            Frame::from(data),
+                        ]))
+                        .await?;
+                        return Ok(());
+                    }
+                    Err(err) => {
+                        conn.write_frame(&Frame::Error(err.get_msg().into()))
+                            .await?;
+                        return Err(err);
+                    }
+                    _ => {}
                 }
             }
 

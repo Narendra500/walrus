@@ -1,6 +1,7 @@
 use crate::{
     Connection,
     db::{Data, Db},
+    errors::WalrusError,
     frame::Frame,
     parse::Parse,
 };
@@ -25,31 +26,28 @@ impl Get {
     ///
     /// Expects an array frame containing exactly two entries.
     /// GET key
-    pub(crate) fn parse_frame(parse: &mut Parse) -> Result<Get, crate::Error> {
+    pub(crate) fn parse_frame(parse: &mut Parse) -> Result<Get, WalrusError> {
         let key = parse.next_string()?;
         Ok(Get { key })
     }
 
     /// Execute the `Get` command to fetch the value for the key from the shared db.
     /// The value is written to `conn`.
-    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
+    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
         let maybe_data = db.get(&self.key);
 
-        let frame = match maybe_data {
+        match maybe_data {
             Some(data) => match data {
-                Data::Bytes(b) => Frame::Bulk(b),
-                Data::String(s) => Frame::Bulk(s.into()),
-                Data::Integer(i) => Frame::Integer(i),
                 Data::Array(_) => {
-                    return Err(
-                        "ERR Operation against a key holding the wrong kind of value".into(),
-                    );
+                    conn.write_frame(&Frame::Error(WalrusError::WrongType.get_msg().into()))
+                        .await?;
+                    return Err(WalrusError::WrongType);
                 }
+                data => conn.write_frame(&Frame::from(data)).await?,
             },
-            None => Frame::Null,
+            None => conn.write_frame(&Frame::Null).await?,
         };
 
-        conn.write_frame(&frame).await.unwrap();
         Ok(())
     }
 
