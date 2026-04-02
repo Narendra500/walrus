@@ -1,6 +1,7 @@
 use crate::{
     Connection,
     db::{Data, Db},
+    errors::WalrusError,
     frame::Frame,
 };
 
@@ -34,7 +35,7 @@ impl LPop {
     ///
     /// The array frame must have atleast 2 elements.
     /// LPOP list_key <count>
-    pub(crate) fn parse_frames(parse: &mut crate::parse::Parse) -> Result<Self, crate::Error> {
+    pub(crate) fn parse_frames(parse: &mut crate::parse::Parse) -> Result<Self, WalrusError> {
         let list_key = parse.next_string()?;
         let count = parse.next_int()?;
         // If count was not given then default of 1 would have been sent by the client.
@@ -46,7 +47,7 @@ impl LPop {
     /// Writes `Frame::Null` if the list is empty or doesn't exist.
     /// Writes Empty array if `count` is zero.
     /// Returns `Value out of range` error if `count` is negative.
-    pub(crate) async fn execute(&self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
+    pub(crate) async fn execute(&self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
         let maybe_list = db.get(&self.list_key);
         if let Some(list) = maybe_list {
             match list {
