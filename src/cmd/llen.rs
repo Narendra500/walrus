@@ -1,6 +1,7 @@
 use crate::{
     Connection,
     db::{Data, Db},
+    errors::WalrusError,
     frame::Frame,
     parse::Parse,
 };
@@ -25,7 +26,7 @@ impl LLen {
     ///
     /// Expects an array containing 2 entries.
     /// LLEN list_key
-    pub(crate) fn parse_frames(parse: &mut Parse) -> Result<LLen, crate::Error> {
+    pub(crate) fn parse_frames(parse: &mut Parse) -> Result<LLen, WalrusError> {
         let list_key = parse.next_string()?;
         Ok(LLen { list_key })
     }
@@ -35,7 +36,7 @@ impl LLen {
     /// Returns the length of the list if successful or `WRONGTYPE` error if data item with
     /// `list_key` is not a list.
     /// Returns `0` if no list with `list_key` is found.
-    pub(crate) async fn execute(&self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
+    pub(crate) async fn execute(&self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
         let maybe_list = db.get(&self.list_key);
 
         if let Some(list) = maybe_list {
