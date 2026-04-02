@@ -1,6 +1,9 @@
-use crate::connection::Connection;
-use crate::frame::Frame;
-use crate::parse::{Parse, ParseError};
+use crate::{
+    connection::Connection,
+    errors::WalrusError,
+    frame::Frame,
+    parse::{Parse, ParseError},
+};
 use bytes::Bytes;
 
 /// PING command, returns PONG if no message provided,
@@ -24,7 +27,7 @@ impl Ping {
     /// Returns `Ping` value on success. error is returned if frame is malformed.
     /// Expects parse instance containing the array frame of 'PING' and
     /// optional message.
-    pub(crate) fn parse_frames(parse: &mut Parse) -> Result<Ping, crate::Error> {
+    pub(crate) fn parse_frames(parse: &mut Parse) -> Result<Ping, WalrusError> {
         // Try to parse message if any.
         match parse.next_bytes() {
             Ok(msg) => Ok(Ping { msg: Some(msg) }),
@@ -34,7 +37,7 @@ impl Ping {
     }
 
     /// Send back `Ping` message to the client.
-    pub(crate) async fn execute(self, conn: &mut Connection) -> Result<(), crate::Error> {
+    pub(crate) async fn execute(self, conn: &mut Connection) -> Result<(), WalrusError> {
         let response = match self.msg {
             None => Frame::Simple(String::from("pong")),
             Some(msg) => Frame::Bulk(msg),
