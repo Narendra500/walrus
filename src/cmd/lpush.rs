@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use crate::{
     Connection,
     db::{Data, Db},
+    errors::WalrusError,
     frame::Frame,
     parse::Parse,
 };
@@ -30,7 +31,7 @@ impl LPush {
     ///
     /// Expects an array containg atleast 3 entries.
     /// LPush list_key array_of_items_to_push
-    pub(crate) fn parse_frames(parse: &mut Parse) -> Result<LPush, crate::Error> {
+    pub(crate) fn parse_frames(parse: &mut Parse) -> Result<LPush, WalrusError> {
         let list_key = parse.next_string()?;
         let value = parse.next_array()?;
         Ok(LPush {
@@ -44,7 +45,7 @@ impl LPush {
     ///
     /// Returns the number of data elements in the array after insertion if successful or
     /// `WRONGTYPE` error if data item with `list_key` is not a list.
-    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
+    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
         // Get the db data corresponding to the `list_key`
         let maybe_list = db.get(&self.list_key);
         // If data with `list_key` exists in db.
