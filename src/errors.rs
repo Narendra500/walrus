@@ -54,3 +54,9 @@ impl From<ParseError> for WalrusError {
         }
     }
 }
+
+impl From<&str> for WalrusError {
+    fn from(err: &str) -> Self {
+        WalrusError::Internal(err.to_string())
+    }
+}

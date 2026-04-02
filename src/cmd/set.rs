@@ -1,6 +1,7 @@
 use crate::{
     Connection,
-    db::Db,
+    db::{self, Db},
+    errors::WalrusError,
     frame::Frame,
     parse::{Parse, ParseError},
 };
@@ -35,7 +36,7 @@ impl Set {
     /// Expects an array frame containing atleast 3 entries.
     ///
     /// SET key value [EX seconds|PX milliseconds]
-    pub(crate) fn parse_frames(parse: &mut Parse) -> Result<Set, crate::Error> {
+    pub(crate) fn parse_frames(parse: &mut Parse) -> Result<Set, WalrusError> {
         // Get key from the frame.
         let key = parse.next_string()?;
         // Get the value to set from the frame.
@@ -65,8 +66,8 @@ impl Set {
 
     /// Execute the `Set` command, inserting the given key-value pair into `Db`.
     /// "OK" response is written to `conn`.
-    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
-        db.set(self.key, crate::db::Data::Bytes(self.value), self.expire);
+    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
+        db.set(self.key, db::Data::Bytes(self.value), self.expire);
 
         let response = Frame::Simple("OK".to_string());
         conn.write_frame(&response).await?;
