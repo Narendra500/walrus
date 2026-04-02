@@ -1,6 +1,7 @@
 use crate::{
     Connection,
     db::{Data, Db},
+    errors::WalrusError,
     frame::Frame,
     parse::Parse,
 };
@@ -36,7 +37,7 @@ impl LRange {
     ///
     /// Expects an array containing 4 entries.
     /// LRANGE list_key start_index end_index
-    pub(crate) fn parse_frame(parse: &mut Parse) -> Result<LRange, crate::Error> {
+    pub(crate) fn parse_frame(parse: &mut Parse) -> Result<LRange, WalrusError> {
         let list_key = parse.next_string()?;
         let start_index = parse.next_int()?;
         let end_index = parse.next_int()?;
@@ -50,7 +51,7 @@ impl LRange {
 
     /// Execute the `LRange` command, the data from the section of the list requested is cloned
     /// and sent to the client by writing the response to the `conn`.
-    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), crate::Error> {
+    pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
         let maybe_list = db.get(&self.list_key);
 
         if let Some(list) = maybe_list {
