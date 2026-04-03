@@ -644,4 +644,114 @@ mod tests {
         // Panics with "Value out of range" error.
         let _ = client.lpop(list_key, Some(count)).await.unwrap();
     }
+
+    #[tokio::test]
+    async fn blpop_test_immediate_return() {
+        let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(1024))
+            .await
+            .unwrap();
+
+        let list = random_string(6);
+        let data = random_data_array(6);
+
+        // First element of the list is expected to be popped.
+        let expected_value = data.front().unwrap().clone();
+
+        client.rpush(list.clone(), data).await.unwrap();
+
+        let response = client.blpop(vec![list], 5).await.unwrap();
+
+        assert!(response.is_some(), "Expected response to be Some");
+
+        let result_array = response.unwrap();
+        assert_eq!(result_array.len(), 2, "BLPOP should return [key, value]");
+
+        assert_eq!(result_array[1], expected_value);
+    }
+
+    #[tokio::test]
+    async fn blpop_test_timeout() {
+        let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(1024))
+            .await
+            .unwrap();
+
+        let list = random_string(6);
+
+        // Start a timer to measure how lone it takes for blpop response.
+        let start_time = tokio::time::Instant::now();
+
+        let response = client.blpop(vec![list], 2).await.unwrap();
+        let elapsed_time = start_time.elapsed().as_secs();
+
+        assert!(response.is_none(), "Expected response to be None");
+        assert!(
+            elapsed_time >= 2,
+            "Expected elapsed time to be at least 2 seconds"
+        );
+    }
+
+    #[tokio::test]
+    async fn blpop_test_concurrent_wakeup() {
+        let mut client1 = Client::connect(SERVER_IPADDRESS.to_string(), Some(1024))
+            .await
+            .unwrap();
+        let mut client2 = Client::connect(SERVER_IPADDRESS.to_string(), Some(1024))
+            .await
+            .unwrap();
+
+        let list = random_string(6);
+        let data = random_data_array(1);
+        let expected_value = data.front().unwrap().clone();
+
+        let key_for_task = list.clone();
+        let data_for_task = data.clone();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            client2.rpush(key_for_task, data_for_task).await.unwrap();
+        });
+
+        let response = client1.blpop(vec![list], 5).await.unwrap();
+
+        assert!(response.is_some(), "Expected response to be Some");
+        let result_array = response.unwrap();
+        assert_eq!(result_array.len(), 2, "BLPOP should return [key, value]");
+        assert_eq!(result_array[1], expected_value);
+    }
+
+    #[tokio::test]
+    async fn blpop_test_key_priority() {
+        let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(1024))
+            .await
+            .unwrap();
+
+        let key_empty = random_string(6);
+        let key_populated = random_string(6);
+
+        let data = random_data_array(1);
+        let expected_value = data[0].clone();
+
+        // Push data ONLY to the second key
+        client.rpush(key_populated.clone(), data).await.unwrap();
+
+        // Ask to BLPOP from the empty key first, then the populated one
+        let response = client
+            .blpop(vec![key_empty.clone(), key_populated.clone()], 5)
+            .await
+            .unwrap();
+
+        assert!(response.is_some());
+        let result_array = response.unwrap();
+
+        // The server should have skipped 'key_empty' and popped from 'key_populated'
+        // verify the key name returned by the server matches `key_populated`
+        let returned_key = match &result_array[0] {
+            Data::String(s) => s.clone(),
+            Data::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
+            _ => panic!("Expected key name to be a string or bytes"),
+        };
+
+        assert_eq!(returned_key, key_populated, "Popped from the wrong key!");
+        assert_eq!(result_array[1], expected_value);
+    }
 }
