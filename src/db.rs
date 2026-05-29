@@ -9,17 +9,18 @@ use tokio::{
     time::{self, Duration, Instant},
 };
 
-use crate::{errors::WalrusError, frame::Frame};
+use crate::{errors::WalrusError, frame::Frame, parse};
 
 /// Data stored in an entry.
 /// Can be Bytes, Simple String or an Vec<Data>
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Data {
     Bytes(Bytes),
     /// VecDeque allowing O(1) push and pop operations at both ends of the list.
     Array(VecDeque<Data>),
     String(String),
     Integer(i64),
+    Double(f64),
 }
 
 /// Single entry in key-value store.
@@ -346,4 +347,51 @@ pub(crate) async fn wait_on_any(notifiers: &[Arc<Notify>]) {
     }
 
     futures.next().await;
+}
+
+/// Takes Bytes and chooses the most optimal representation of the data.
+/// Returns a `Data` instance.
+///
+/// # example
+/// b'123' will be represented as `Data::Integer(123)`.
+/// b'123.456' will be represented as `Data::Double(123.456)`.
+pub(crate) fn optimize_storage(bytes: Bytes) -> Data {
+    if let Some(i) = parse::extract_i64_strict(&bytes) {
+        Data::Integer(i)
+    } else if let Some(f) = parse::extract_f64(&bytes) {
+        Data::Double(f)
+    } else {
+        Data::Bytes(Bytes::from(bytes))
+    }
+}
+
+/// Convert `i64` to `Bytes`.
+/// Converts `i64` to a slice of bytes which are then copied into a `Bytes` instance.
+pub(crate) fn int_to_bytes(val: i64) -> Bytes {
+    let mut buf = itoa::Buffer::new();
+    let printed = buf.format(val);
+    Bytes::copy_from_slice(printed.as_bytes())
+}
+
+/// Convert `f64` to `Bytes`.
+/// Converts `f64` to a slice of bytes which are then copied into a `Bytes` instance.
+pub(crate) fn double_to_bytes(val: f64) -> Bytes {
+    use ryu;
+    // RESP3 Special cases: +inf, -inf, nan
+    if val.is_infinite() {
+        if val.is_sign_positive() {
+            return Bytes::copy_from_slice(b"inf");
+        } else {
+            return Bytes::copy_from_slice(b"-inf");
+        }
+    } else if val.is_nan() {
+        return Bytes::copy_from_slice(b"nan");
+    }
+
+    // Use ryu crate for better performance than format!() or to_string() method.
+    // Uses a stack allocated buffer to avoid heap allocations.
+    let mut buffer = ryu::Buffer::new();
+    let printed: &str = buffer.format(val);
+
+    Bytes::copy_from_slice(printed.as_bytes())
 }

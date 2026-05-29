@@ -27,12 +27,12 @@ use crate::{
 #[derive(Debug)]
 pub struct BLPop {
     keys: Vec<String>,
-    timeout: u64,
+    timeout: f64,
 }
 
 impl BLPop {
     /// Returns a new BLPop command.
-    pub fn new(keys: Vec<String>, timeout: u64) -> Self {
+    pub fn new(keys: Vec<String>, timeout: f64) -> Self {
         Self { keys, timeout }
     }
 
@@ -56,8 +56,8 @@ impl BLPop {
     /// Array frame with the name of the key that was popped and the corresponding value.
     /// Null frame is returned if the timeout is reached.
     pub(crate) async fn execute(&self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
-        let mut timer = if self.timeout > 0 {
-            Box::pin(sleep(Duration::from_secs(self.timeout)).boxed())
+        let mut timer = if self.timeout > 0.0 {
+            Box::pin(sleep(Duration::from_secs_f64(self.timeout)).boxed())
         } else {
             // If timeout is 0, this future hangs forever.
             // disabling the timeout branch.
@@ -95,7 +95,7 @@ impl BLPop {
             // Block until either the timer or one of the keys is notified.
             tokio::select! {
                 // The timer finished.
-                _ = &mut timer, if self.timeout > 0 => {
+                _ = &mut timer, if self.timeout > 0.0 => {
                     conn.write_frame(&Frame::Null).await?;
                     return Ok(());
                 }
@@ -116,7 +116,7 @@ impl BLPop {
         for key in self.keys {
             frame.push(Frame::Bulk(Bytes::from(key)));
         }
-        frame.push(Frame::Integer(self.timeout as i64));
+        frame.push(Frame::Double(self.timeout));
 
         frame
     }

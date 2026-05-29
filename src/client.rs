@@ -5,7 +5,7 @@ use tokio::net::{TcpStream, ToSocketAddrs};
 
 use crate::{
     Connection,
-    cmd::{BLPop, Get, LLen, LPop, LPush, LRange, Ping, RPush, Set},
+    cmd::{BLPop, Get, LLen, LPop, LPush, LRange, Ping, RPush, Set, Type},
     db::Data,
     errors::WalrusError,
     frame::Frame,
@@ -15,6 +15,19 @@ use crate::{
 pub struct Client {
     /// TCP stream wrapped in `Connection`, which provides frame parsing.
     connection: Connection,
+}
+
+pub fn int_to_string(val: i64) -> String {
+    let mut buf = itoa::Buffer::new();
+    let printed = buf.format(val);
+    printed.to_string()
+}
+
+pub fn double_to_string(val: f64) -> String {
+    use ryu;
+    let mut buffer = ryu::Buffer::new();
+    let printed: &str = buffer.format(val);
+    printed.to_string()
 }
 
 impl Client {
@@ -180,7 +193,7 @@ impl Client {
     pub async fn blpop(
         &mut self,
         keys: Vec<String>,
-        timeout: u64,
+        timeout: f64,
     ) -> Result<Option<Vec<Data>>, WalrusError> {
         let frame = BLPop::new(keys, timeout).into_frame();
         self.connection.write_frame(&frame).await?;
@@ -241,10 +254,34 @@ impl Client {
             Err("No response from server".into())
         }
     }
+
+    /// `Type` command to get the type of the data associated with the given key.
+    /// Returns the type of the data if successful.
+    /// Returns "none" if the key doesn't exist.
+    /// Returns "list" if the data associated with the key is a list.
+    /// Returns "string" for Bytes, Integer, Double and String.
+    /// Although Integer and Double are stored as i64 and f64 internally, the type
+    /// presented is string.
+    pub async fn wtype(&mut self, key: String) -> Result<String, WalrusError> {
+        let frame = Type::new(key).into_frame();
+        self.connection.write_frame(&frame).await?;
+
+        if let Some(response) = self.connection.read_frame().await? {
+            match response {
+                Frame::Simple(value) => Ok(value.into()),
+                Frame::Bulk(value) => Ok(String::from_utf8_lossy(&value[..]).into()),
+                Frame::Error(err) => Err(err.into()),
+                _ => Err("Invalid response by server".into()),
+            }
+        } else {
+            Err("No response from server".into())
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{double_to_string, int_to_string};
     use rand::{RngExt, distr::Alphanumeric, random};
     use std::{collections::VecDeque, time::Duration};
 
@@ -420,6 +457,28 @@ mod tests {
         } else {
             println!("The key expired before sending the get command.");
         }
+    }
+
+    #[tokio::test]
+    async fn get_double_trailing_zeros_test() {
+        let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(32))
+            .await
+            .unwrap();
+        let key = random_string(6);
+        let value = "5000.00";
+
+        let set_response = client
+            .set(key.clone(), Bytes::from(value), None)
+            .await
+            .unwrap();
+        println!("set_response: {set_response}");
+
+        assert_eq!("OK", set_response);
+
+        let get_response = client.get(key.clone()).await.unwrap().unwrap();
+        println!("get_response: {get_response:?}");
+
+        assert_eq!(get_response, Bytes::from(value));
     }
 
     /// Pushes a list containing Data into server db.
@@ -659,7 +718,7 @@ mod tests {
 
         client.rpush(list.clone(), data).await.unwrap();
 
-        let response = client.blpop(vec![list], 5).await.unwrap();
+        let response = client.blpop(vec![list], 5.0).await.unwrap();
 
         assert!(response.is_some(), "Expected response to be Some");
 
@@ -680,7 +739,7 @@ mod tests {
         // Start a timer to measure how lone it takes for blpop response.
         let start_time = tokio::time::Instant::now();
 
-        let response = client.blpop(vec![list], 2).await.unwrap();
+        let response = client.blpop(vec![list], 2.0).await.unwrap();
         let elapsed_time = start_time.elapsed().as_secs();
 
         assert!(response.is_none(), "Expected response to be None");
@@ -711,7 +770,7 @@ mod tests {
             client2.rpush(key_for_task, data_for_task).await.unwrap();
         });
 
-        let response = client1.blpop(vec![list], 5).await.unwrap();
+        let response = client1.blpop(vec![list], 5.0).await.unwrap();
 
         assert!(response.is_some(), "Expected response to be Some");
         let result_array = response.unwrap();
@@ -736,7 +795,7 @@ mod tests {
 
         // Ask to BLPOP from the empty key first, then the populated one
         let response = client
-            .blpop(vec![key_empty.clone(), key_populated.clone()], 5)
+            .blpop(vec![key_empty.clone(), key_populated.clone()], 5.0)
             .await
             .unwrap();
 
@@ -753,5 +812,77 @@ mod tests {
 
         assert_eq!(returned_key, key_populated, "Popped from the wrong key!");
         assert_eq!(result_array[1], expected_value);
+    }
+
+    #[tokio::test]
+    async fn wtype_test_list() {
+        let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(32))
+            .await
+            .unwrap();
+
+        let key = random_string(6);
+        let value = random_data_array(3);
+
+        client.rpush(key.clone(), value.clone()).await.unwrap();
+
+        let wtype_response = client.wtype(key).await.unwrap();
+        assert_eq!(wtype_response, "list");
+    }
+
+    #[tokio::test]
+    async fn wtype_test_string() {
+        let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(32))
+            .await
+            .unwrap();
+
+        let key = random_string(6);
+        let value = random_string(6);
+
+        client.set(key.clone(), value.into(), None).await.unwrap();
+
+        let wtype_response = client.wtype(key).await.unwrap();
+        assert_eq!(wtype_response, "string");
+    }
+
+    #[tokio::test]
+    async fn wtype_test_integer() {
+        let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(32))
+            .await
+            .unwrap();
+
+        let key = random_string(6);
+        let value = int_to_string(random::<i64>());
+
+        client.set(key.clone(), value.into(), None).await.unwrap();
+
+        let wtype_response = client.wtype(key).await.unwrap();
+        assert_eq!(wtype_response, "string");
+    }
+
+    #[tokio::test]
+    async fn wtype_test_double() {
+        let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(32))
+            .await
+            .unwrap();
+
+        let key = random_string(6);
+        let value = double_to_string(random::<f64>());
+
+        client.set(key.clone(), value.into(), None).await.unwrap();
+
+        let wtype_response = client.wtype(key).await.unwrap();
+        assert_eq!(wtype_response, "string");
+    }
+
+    #[tokio::test]
+    async fn wtype_test_non_existent_key() {
+        let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(32))
+            .await
+            .unwrap();
+
+        let key = random_string(6);
+
+        let wtype_response = client.wtype(key).await.unwrap();
+        assert_eq!(wtype_response, "none");
     }
 }

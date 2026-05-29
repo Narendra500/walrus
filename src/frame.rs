@@ -9,6 +9,7 @@ use std::{io::Cursor, num::TryFromIntError};
 
 use crate::db::Data;
 use crate::errors::WalrusError;
+use crate::parse;
 
 /// A frame in RESP.
 ///
@@ -27,6 +28,7 @@ pub enum Frame {
     Simple(String),
     Error(String),
     Integer(i64),
+    Double(f64),
     Bulk(Bytes),
     Null,
     Array(Vec<Frame>),
@@ -49,6 +51,7 @@ impl Frame {
             Frame::Simple(string) => self.push_string(string),
             Frame::Bulk(bytes) => self.push_bulk(bytes),
             Frame::Integer(val) => self.push_int(val),
+            Frame::Double(val) => self.push_double(val),
             // Nested array's are not supported.
             _ => unreachable!(),
         }
@@ -72,6 +75,7 @@ impl Frame {
                 Data::String(data) => self.push_string(data),
                 Data::Bytes(data) => self.push_bulk(data),
                 Data::Integer(data) => self.push_int(data),
+                Data::Double(data) => self.push_double(data),
                 // Nested arrays are not supported.
                 Data::Array(_) => {
                     panic!("Nested arrays are not supported.");
@@ -85,6 +89,13 @@ impl Frame {
     pub(crate) fn push_bulk(&mut self, bytes: Bytes) {
         match self {
             Frame::Array(frame) => frame.push(Frame::Bulk(bytes)),
+            _ => panic!("not an array frame"),
+        }
+    }
+
+    pub(crate) fn push_double(&mut self, val: f64) {
+        match self {
+            Frame::Array(frame) => frame.push(Frame::Double(val)),
             _ => panic!("not an array frame"),
         }
     }
@@ -111,6 +122,10 @@ impl Frame {
             }
             b':' => {
                 get_decimal(src)?;
+                Ok(())
+            }
+            b',' => {
+                get_double(src)?;
                 Ok(())
             }
             b'$' => {
@@ -165,6 +180,10 @@ impl Frame {
             b':' => {
                 let number = get_decimal(src)?;
                 Ok(Frame::Integer(number))
+            }
+            b',' => {
+                let number = get_double(src)?;
+                Ok(Frame::Double(number))
             }
             b'$' => {
                 // $-1\r\n is Null
@@ -255,11 +274,15 @@ fn skip(src: &mut Cursor<&[u8]>, n: usize) -> Result<(), Error> {
 
 /// Read a CRLF terminated decimal.
 fn get_decimal(src: &mut Cursor<&[u8]>) -> Result<i64, Error> {
-    use atoi::atoi;
-
     let line = get_line(src)?;
 
-    atoi::<i64>(line).ok_or_else(|| "protocol error; invalid frame format".into())
+    parse::extract_i64(line).ok_or_else(|| "protocol error; invalid frame format".into())
+}
+
+/// Read a CRLF terminated double.
+fn get_double(src: &mut Cursor<&[u8]>) -> Result<f64, Error> {
+    let line = get_line(src)?;
+    parse::extract_f64(line).ok_or_else(|| "protocol error; invalid frame format".into())
 }
 
 /// Get all bytes until next CRLF.
@@ -286,6 +309,7 @@ impl fmt::Display for Frame {
             Frame::Simple(string) => string.fmt(fmt),
             Frame::Error(err) => write!(fmt, "error: {err}"),
             Frame::Integer(num) => num.fmt(fmt),
+            Frame::Double(num) => num.fmt(fmt),
             Frame::Bulk(msg) => match str::from_utf8(&msg) {
                 // valid text
                 Ok(string) => string.fmt(fmt),
@@ -326,6 +350,7 @@ impl From<Data> for Frame {
             Data::Integer(val) => Frame::Integer(val),
             Data::Bytes(val) => Frame::Bulk(val),
             Data::String(val) => Frame::Simple(val),
+            Data::Double(val) => Frame::Double(val),
             // NOTE: This will flatten nested array's.
             Data::Array(arr) => {
                 let mut frame = Frame::array();
@@ -351,6 +376,7 @@ impl TryFrom<Frame> for Data {
             Frame::Simple(string) => Ok(Data::String(string)),
             Frame::Bulk(bytes) => Ok(Data::Bytes(bytes)),
             Frame::Integer(val) => Ok(Data::Integer(val)),
+            Frame::Double(val) => Ok(Data::Double(val)),
             // NOTE: This will flatten nested arrays.
             Frame::Array(arr) => {
                 let mut data_vec = VecDeque::with_capacity(arr.len());

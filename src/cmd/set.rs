@@ -1,3 +1,5 @@
+use bytes::Bytes;
+
 use crate::{
     Connection,
     db::{self, Db},
@@ -5,7 +7,6 @@ use crate::{
     frame::Frame,
     parse::{Parse, ParseError},
 };
-use bytes::Bytes;
 use std::time::Duration;
 
 /// Set a value for a key.
@@ -67,7 +68,10 @@ impl Set {
     /// Execute the `Set` command, inserting the given key-value pair into `Db`.
     /// "OK" response is written to `conn`.
     pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
-        db.set(self.key, db::Data::Bytes(self.value), self.expire);
+        // optimize storage of data before inserting into db.
+        let value = db::optimize_storage(self.value);
+
+        db.set(self.key, value, self.expire);
 
         let response = Frame::Simple("OK".to_string());
         conn.write_frame(&response).await?;

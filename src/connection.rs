@@ -153,6 +153,9 @@ impl Connection {
                 self.stream.write_u8(b':').await?;
                 self.write_decimal(*val).await?;
             }
+            Frame::Double(val) => {
+                self.write_double(*val).await?;
+            }
             Frame::Null => {
                 self.stream.write_all(b"$-1\r\n").await?;
             }
@@ -166,6 +169,36 @@ impl Connection {
             }
             Frame::Array(_) => unreachable!(),
         }
+        Ok(())
+    }
+
+    /// Write a double value to the stream.
+    pub async fn write_double(&mut self, val: f64) -> io::Result<()> {
+        use ryu;
+        // RESP3 Special cases: +inf, -inf, nan
+        if val.is_infinite() {
+            if val.is_sign_positive() {
+                self.stream.write_all(b",inf\r\n").await?;
+            } else {
+                self.stream.write_all(b"-inf\r\n").await?;
+            }
+            return Ok(());
+        } else if val.is_nan() {
+            self.stream.write_all(b",nan\r\n").await?;
+            return Ok(());
+        }
+
+        // Identifier for double.
+        self.stream.write_u8(b',').await?;
+
+        // Use ryu crate for better performance than format!() or to_string() method.
+        // Uses a stack allocated buffer to avoid heap allocations.
+        let mut buffer = ryu::Buffer::new();
+        let printed: &str = buffer.format(val);
+
+        self.stream.write_all(printed.as_bytes()).await?;
+        self.stream.write_all(b"\r\n").await?;
+
         Ok(())
     }
 

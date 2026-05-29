@@ -1,6 +1,6 @@
 use crate::{
     Connection,
-    db::{Data, Db},
+    db::{Data, Db, double_to_bytes, int_to_bytes},
     errors::WalrusError,
     frame::Frame,
     parse::Parse,
@@ -43,7 +43,16 @@ impl Get {
                         .await?;
                     return Err(WalrusError::WrongType);
                 }
-                data => conn.write_frame(&Frame::from(data)).await?,
+                Data::Bytes(bytes) => conn.write_frame(&Frame::Bulk(bytes)).await?,
+                Data::Integer(integer) => {
+                    conn.write_frame(&Frame::Bulk(int_to_bytes(integer)))
+                        .await?
+                }
+                Data::Double(double) => {
+                    conn.write_frame(&Frame::Bulk(double_to_bytes(double)))
+                        .await?
+                }
+                Data::String(string) => conn.write_frame(&Frame::Simple(string)).await?,
             },
             None => conn.write_frame(&Frame::Null).await?,
         };

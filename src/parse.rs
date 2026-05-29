@@ -1,5 +1,4 @@
 use crate::{db::Data, errors::WalrusError, frame::Frame};
-use atoi::atoi;
 use bytes::Bytes;
 use std::{collections::VecDeque, fmt, iter::Peekable, vec};
 
@@ -50,8 +49,8 @@ impl Parse {
     }
 
     /// Try to parse any number of strings and a timeout.
-    /// Returns (Vec<String>, u64) on success.
-    pub(crate) fn next_strings_with_timeout(&mut self) -> Result<(Vec<String>, u64), ParseError> {
+    /// Returns (Vec<String>, f64) on success.
+    pub(crate) fn next_strings_with_timeout(&mut self) -> Result<(Vec<String>, f64), ParseError> {
         let mut result = Vec::new();
         while let Ok(frame) = self.next() {
             match frame {
@@ -61,7 +60,21 @@ impl Parse {
                         return Err("protocol error; No keys specified in BLPOP".into());
                     }
                     // The timeout is the last element, so any more data is invalid.
-                    let timeout = data as u64;
+                    let timeout = data as f64;
+                    if self.peek().is_ok() {
+                        return Err(
+                            "protocol error; data item after timeout not allowed in BLPOP".into(),
+                        );
+                    };
+
+                    return Ok((result, timeout));
+                }
+                Frame::Double(data) => {
+                    if result.is_empty() {
+                        return Err("protocol error; No keys specified in BLPOP".into());
+                    }
+                    // The timeout is the last element, so any more data is invalid.
+                    let timeout = data;
                     if self.peek().is_ok() {
                         return Err(
                             "protocol error; data item after timeout not allowed in BLPOP".into(),
@@ -102,6 +115,7 @@ impl Parse {
                 Frame::Simple(data) => result.push_back(Data::String(data)),
                 Frame::Bulk(data) => result.push_back(Data::Bytes(data)),
                 Frame::Integer(data) => result.push_back(Data::Integer(data)),
+                Frame::Double(data) => result.push_back(Data::Double(data)),
                 Frame::Error(err) => return Err(ParseError::Other(err.into())),
                 Frame::Null => {
                     return Err(ParseError::Other("can't push null values in array".into()));
@@ -156,14 +170,146 @@ impl Parse {
         match self.next()? {
             // Simple and Bulk can be parse to i64, error is returned if parsing fails.
             Frame::Simple(data) => {
-                atoi::<i64>(data.as_bytes()).ok_or_else(|| "protocol error; invalid number".into())
+                extract_i64(data.as_bytes()).ok_or_else(|| "protocol error; invalid number".into())
             }
             Frame::Bulk(data) => {
-                atoi::<i64>(&data).ok_or_else(|| "protocol error; invalid number".into())
+                extract_i64(&data).ok_or_else(|| "protocol error; invalid number".into())
             }
             Frame::Integer(int) => Ok(int),
             frame => Err(format!("protocol error; expected Integer frame, got {frame:?}").into()),
         }
+    }
+}
+
+pub(crate) fn extract_f64(bytes: &[u8]) -> Option<f64> {
+    use fast_float;
+    if !check_float_trailing_zeros(bytes) {
+        return fast_float::parse::<f64, _>(bytes.as_ref()).ok();
+    }
+    None
+}
+
+/// Checks if the float slice has trailing zeros.
+/// Special case for floats with just a single trailing zero right after the decimal point, parsing
+/// them doesn't change the value and hence false is returned.
+fn check_float_trailing_zeros(bytes: &[u8]) -> bool {
+    let mut number_of_trailing_zeros = 0;
+    let mut rev_iter = bytes.iter().rev();
+
+    while let Some(&byte) = rev_iter.next() {
+        if byte == b'0' {
+            number_of_trailing_zeros += 1;
+        } else if byte == b'.' {
+            return number_of_trailing_zeros > 1;
+        } else {
+            return false;
+        }
+    }
+
+    // Only zeroes, no decimal point or any other number was found.
+    number_of_trailing_zeros > 1
+}
+
+/// Extracts i64 from bytes.
+/// #Rejects
+/// - integers with leading zeroes to avoid changing values like '001' to 1.
+/// - integers starting with a + sign.
+/// - byte slice containing non digit characters.
+///
+/// Returns i64 if successful else None.
+pub(crate) fn extract_i64_strict(bytes: &[u8]) -> Option<i64> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let mut result: i64 = 0;
+    let mut is_negative = false;
+    let mut start_idx = 0;
+
+    // Check if the first byte is a minus sign.
+    if bytes[0] == b'-' {
+        is_negative = true;
+        start_idx = 1;
+        // If it's just a "-" with no numbers, return None.
+        if bytes.len() == 1 {
+            return None;
+        }
+    }
+    // If + is included then don't parse the number. As +91 denotes country code and should not be
+    // parse as integer.
+    else if bytes[0] == b'+' {
+        return None;
+    }
+
+    for &byte in &bytes[start_idx..] {
+        // Ensure that the byte is an ASCII digit.
+        if byte >= b'0' && byte <= b'9' {
+            let digit = (byte - b'0') as i64;
+
+            // If leading zeroes are present then turning into integer will change the actual value.
+            // '001' will be parse as 1. Which is not intended.
+            if result == 0 && digit == 0 {
+                return None;
+            }
+
+            // Multiply the current result by 10 and add the new digit.
+            // Using checked_mul and checked_add to avoid overflow.
+            result = result.checked_mul(10)?.checked_add(digit)?;
+        } else {
+            // If the byte is not a digit, return None.
+            return None;
+        }
+    }
+
+    if is_negative {
+        Some(-result)
+    } else {
+        Some(result)
+    }
+}
+
+/// Extracts i64 from bytes.
+/// #Rejects
+/// - byte slice containing non digit characters.
+///
+/// Returns i64 if successful else None.
+pub(crate) fn extract_i64(bytes: &[u8]) -> Option<i64> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let mut result: i64 = 0;
+    let mut is_negative = false;
+    let mut start_idx = 0;
+
+    // Check if the first byte is a minus sign.
+    if bytes[0] == b'-' {
+        is_negative = true;
+        start_idx = 1;
+        // If it's just a "-" with no numbers, return None.
+        if bytes.len() == 1 {
+            return None;
+        }
+    }
+
+    for &byte in &bytes[start_idx..] {
+        // Ensure that the byte is an ASCII digit.
+        if byte >= b'0' && byte <= b'9' {
+            let digit = (byte - b'0') as i64;
+
+            // Multiply the current result by 10 and add the new digit.
+            // Using checked_mul and checked_add to avoid overflow.
+            result = result.checked_mul(10)?.checked_add(digit)?;
+        } else {
+            // If the byte is not a digit, return None.
+            return None;
+        }
+    }
+
+    if is_negative {
+        Some(-result)
+    } else {
+        Some(result)
     }
 }
 

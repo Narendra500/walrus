@@ -1,13 +1,15 @@
 [package]
 name = "walrus"
 version = "0.1.0"
+authors = ["Narendra <narendrakchoudhary5@gmail.com>"]
 edition = "2024"
 
 [dependencies]
 tokio = { version = "1.49.0", features = ["full"] }
 bytes = "1.11.0"
 memchr = "2.7.6"
-atoi = "2.0.0"
 itoa = "1.0.17"
+ryu = "1.0.23"
 rand = "0.10.0"
 futures = "0.3.32"
+fast-float = "0.2.0"

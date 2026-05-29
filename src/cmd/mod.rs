@@ -25,6 +25,9 @@ pub use llen::LLen;
 mod lrange;
 pub use lrange::LRange;
 
+mod wtype;
+pub use wtype::Type;
+
 use crate::{connection::Connection, db::Db, errors::WalrusError, frame::Frame, parse::Parse};
 
 pub(crate) enum Command {
@@ -37,6 +40,7 @@ pub(crate) enum Command {
     BLPop(BLPop),
     LLen(LLen),
     LRange(LRange),
+    Type(Type),
     Unknown(String),
 }
 
@@ -60,6 +64,7 @@ impl Command {
             "blpop" => Command::BLPop(BLPop::parse_frames(&mut parse)?),
             "llen" => Command::LLen(LLen::parse_frames(&mut parse)?),
             "lrange" => Command::LRange(LRange::parse_frame(&mut parse)?),
+            "type" => Command::Type(Type::parse_frames(&mut parse)?),
             _ => Command::Unknown(command_name),
         };
 
@@ -80,6 +85,7 @@ impl Command {
             Command::BLPop(cmd) => cmd.execute(db, conn).await,
             Command::LLen(cmd) => cmd.execute(db, conn).await,
             Command::LRange(cmd) => cmd.execute(db, conn).await,
+            Command::Type(cmd) => cmd.execute(db, conn).await,
             Command::Unknown(cmd) => {
                 let response = Frame::Error(format!("ERR unknown command {cmd}"));
                 conn.write_frame(&response).await?;
