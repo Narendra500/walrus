@@ -37,8 +37,8 @@ impl LPop {
     /// LPOP list_key <count>
     pub(crate) fn parse_frames(parse: &mut crate::parse::Parse) -> Result<Self, WalrusError> {
         let list_key = parse.next_string()?;
-        let count = parse.next_int()?;
-        // If count was not given then default of 1 would have been sent by the client.
+        // If count was not given then default of 1 is taken.
+        let count = parse.next_int().unwrap_or(1);
         Ok(Self::new(list_key, Some(count)))
     }
 

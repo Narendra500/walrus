@@ -1,4 +1,8 @@
-use crate::{db::Data, errors::WalrusError, frame::Frame};
+use crate::{
+    db::{Data, optimize_storage},
+    errors::WalrusError,
+    frame::Frame,
+};
 use bytes::Bytes;
 use std::{collections::VecDeque, fmt, iter::Peekable, vec};
 
@@ -6,6 +10,7 @@ use std::{collections::VecDeque, fmt, iter::Peekable, vec};
 ///
 /// Command are sent as Frame::Array(Frame). Provides parsing value from
 /// each array frame one at a time.
+#[derive(Debug)]
 pub(crate) struct Parse {
     /// Iterator over array frames.
     frames: Peekable<vec::IntoIter<Frame>>,
@@ -54,7 +59,19 @@ impl Parse {
         let mut result = Vec::new();
         while let Ok(frame) = self.next() {
             match frame {
-                Frame::Simple(data) => result.push(data),
+                Frame::Simple(data) => {
+                    // If this is the last element of the blpop command then must be the timeout.
+                    if self.peek().is_err() {
+                        // parse int or float from bytes.
+                        let timeout = optimize_storage(Bytes::from(data));
+                        match timeout {
+                            Data::Double(t) => return Ok((result, t)),
+                            Data::Integer(t) => return Ok((result, t as f64)),
+                            _ => return Err("protocol error; last item must be the timeout".into()),
+                        }
+                    }
+                    result.push(data);
+                }
                 Frame::Integer(data) => {
                     if result.is_empty() {
                         return Err("protocol error; No keys specified in BLPOP".into());
@@ -84,6 +101,16 @@ impl Parse {
                     return Ok((result, timeout));
                 }
                 Frame::Bulk(bytes) => {
+                    // If this is the last element of the blpop command then must be the timeout.
+                    if self.peek().is_err() {
+                        // parse int or float from bytes.
+                        let timeout = optimize_storage(bytes);
+                        match timeout {
+                            Data::Double(t) => return Ok((result, t)),
+                            Data::Integer(t) => return Ok((result, t as f64)),
+                            _ => return Err("protocol error; last item must be the timeout".into()),
+                        }
+                    }
                     let maybe_string = String::from_utf8(bytes.to_vec());
                     match maybe_string {
                         Ok(string) => result.push(string),
@@ -92,7 +119,9 @@ impl Parse {
                         }
                     };
                 }
-                Frame::Error(err) => return Err(ParseError::Other(err.into())),
+                Frame::Error(err) => {
+                    return Err(ParseError::Other(err.into()));
+                }
                 Frame::Null => {
                     return Err("protocol error; null not allowed in BLPOP".into());
                 }

@@ -290,7 +290,7 @@ mod tests {
     use bytes::Bytes;
     use tokio::time::{Instant, sleep_until};
 
-    const SERVER_IPADDRESS: &str = "127.0.0.1:6379";
+    const SERVER_IPADDRESS: &str = "127.0.0.1:6380";
 
     fn random_string(len: usize) -> String {
         rand::rng()
@@ -628,6 +628,31 @@ mod tests {
         // Get back the length of the list.
         let llen_response = client.llen(list_key).await.unwrap();
         assert_eq!(llen_response, len);
+    }
+
+    /// Test for `LPop` command without specifying the count, returns the first element of the list with key.
+    #[tokio::test]
+    async fn lpop_no_count() {
+        let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(32))
+            .await
+            .unwrap();
+
+        let list_key = random_string(6);
+        let data = random_data_array(6);
+
+        // Send data to create the list with.
+        let rpush_response = client.rpush(list_key.clone(), data.clone()).await.unwrap();
+        println!("rpush_response: {rpush_response}");
+
+        assert_eq!(rpush_response, data.len() as i64);
+
+        let lpop_response = client.lpop(list_key, None).await.unwrap().unwrap();
+        println!("lpop_response: {lpop_response:?}");
+
+        assert_eq!(
+            lpop_response,
+            data.range(0..1 as usize).cloned().collect::<Vec<_>>()
+        );
     }
 
     /// Test for `LPop` command, returns the first element of the list with key.

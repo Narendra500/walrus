@@ -13,3 +13,4 @@ ryu = "1.0.23"
 rand = "0.10.0"
 futures = "0.3.32"
 fast-float = "0.2.0"
+clap = { version = "4.6.1", features = ["derive"] }
