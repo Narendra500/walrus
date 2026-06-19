@@ -9,13 +9,13 @@ async fn main() {
 
     let set = client
         .set(
-            "something".to_string(),
+            Bytes::from("something"),
             Bytes::from("some value"),
             Some(Duration::from_secs(3)),
         )
         .await
         .unwrap();
-    let get = client.get("something".to_string()).await.unwrap().unwrap();
+    let get = client.get(Bytes::from("something")).await.unwrap().unwrap();
 
-    println!("set: {set}, get: {get:?}");
+    println!("set: {set:?}, get: {get:?}");
 }

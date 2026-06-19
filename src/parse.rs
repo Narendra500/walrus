@@ -54,8 +54,8 @@ impl Parse {
     }
 
     /// Try to parse any number of strings and a timeout.
-    /// Returns (Vec<String>, f64) on success.
-    pub(crate) fn next_strings_with_timeout(&mut self) -> Result<(Vec<String>, f64), ParseError> {
+    /// Returns (Vec<Bytes>, f64) on success.
+    pub(crate) fn next_bytes_with_timeout(&mut self) -> Result<(Vec<Bytes>, f64), ParseError> {
         let mut result = Vec::new();
         while let Ok(frame) = self.next() {
             match frame {
@@ -70,7 +70,7 @@ impl Parse {
                             _ => return Err("protocol error; last item must be the timeout".into()),
                         }
                     }
-                    result.push(data);
+                    result.push(Bytes::from(data));
                 }
                 Frame::Integer(data) => {
                     if result.is_empty() {
@@ -111,13 +111,7 @@ impl Parse {
                             _ => return Err("protocol error; last item must be the timeout".into()),
                         }
                     }
-                    let maybe_string = String::from_utf8(bytes.to_vec());
-                    match maybe_string {
-                        Ok(string) => result.push(string),
-                        Err(_) => {
-                            return Err("protocol error; invalid string in BLPOP".into());
-                        }
-                    };
+                    result.push(bytes);
                 }
                 Frame::Error(err) => {
                     return Err(ParseError::Other(err.into()));
@@ -166,8 +160,8 @@ impl Parse {
             // Simple and Bulk frames can be representated raw bytes,
             // errors are considered separate types despite them stored
             // as strings.
-            Frame::Simple(data) => Ok(Bytes::from(data.into_bytes())),
             Frame::Bulk(data) => Ok(data),
+            Frame::Simple(data) => Ok(Bytes::from(data)),
             frame => Err(format!(
                 "protocol error; expected simple or bulk string frame, got {frame:?}"
             )

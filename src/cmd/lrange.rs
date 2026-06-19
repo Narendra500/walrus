@@ -1,3 +1,5 @@
+use bytes::Bytes;
+
 use crate::{
     Connection,
     db::{Data, Db},
@@ -10,7 +12,7 @@ use crate::{
 /// to end offset (both inclusive).
 /// Offsets can be negative (e.g,. -1 is last element, -2 is penultimate and so on).
 pub struct LRange {
-    list_key: String,
+    list_key: Bytes,
     /// The starting offset (inclusive).
     /// Can be negative (e.g,. -1 for the last element).
     start_index: i64,
@@ -23,9 +25,9 @@ impl LRange {
     /// Returns a `LRange` instance.
     /// Takes key which can be of any datatype that implements `ToString`, a start_index and
     /// end_index both i64.
-    pub fn new(list_key: impl ToString, start_index: i64, end_index: i64) -> LRange {
+    pub fn new(list_key: Bytes, start_index: i64, end_index: i64) -> LRange {
         LRange {
-            list_key: list_key.to_string(),
+            list_key,
             start_index,
             end_index,
         }
@@ -38,7 +40,7 @@ impl LRange {
     /// Expects an array containing 4 entries.
     /// LRANGE list_key start_index end_index
     pub(crate) fn parse_frame(parse: &mut Parse) -> Result<LRange, WalrusError> {
-        let list_key = parse.next_string()?;
+        let list_key = parse.next_bytes()?;
         let start_index = parse.next_int()?;
         let end_index = parse.next_int()?;
 
@@ -120,8 +122,8 @@ impl LRange {
     /// Convert `LRange` instance to `Frame`.
     pub(crate) fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string("lrange".into());
-        frame.push_string(self.list_key);
+        frame.push_bulk(Bytes::from("lrange"));
+        frame.push_bulk(self.list_key);
         frame.push_int(self.start_index);
         frame.push_int(self.end_index);
 

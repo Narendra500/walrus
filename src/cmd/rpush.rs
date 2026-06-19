@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use bytes::Bytes;
+
 use crate::{
     Connection,
     db::{Data, Db},
@@ -10,7 +12,7 @@ use crate::{
 
 /// Push a `Data` item into the list with the key `list_key`.
 pub struct RPush {
-    list_key: String,
+    list_key: Bytes,
     /// Array containing the data to be appended to the list.
     data: VecDeque<Data>,
 }
@@ -18,11 +20,8 @@ pub struct RPush {
 impl RPush {
     /// Create a new `RPush` command which pushes the data to the end of list
     /// with key `list_key`.
-    pub fn new(list_key: impl ToString, data: VecDeque<Data>) -> RPush {
-        RPush {
-            list_key: list_key.to_string(),
-            data,
-        }
+    pub fn new(list_key: Bytes, data: VecDeque<Data>) -> RPush {
+        RPush { list_key, data }
     }
 
     /// Parse a `RPush` instance from an array frame.
@@ -32,7 +31,7 @@ impl RPush {
     /// Expects an array containg atleast 3 entries.
     /// RPush list_key array_of_items_to_push
     pub(crate) fn parse_frames(parse: &mut Parse) -> Result<RPush, WalrusError> {
-        let list_key = parse.next_string()?;
+        let list_key = parse.next_bytes()?;
         let value = parse.next_array()?;
         Ok(RPush {
             list_key,
@@ -83,7 +82,7 @@ impl RPush {
             let vec_deque_data = VecDeque::from(vec_data);
             // Get the length of the data before it is moved into the db.
             let list_len = vec_deque_data.len();
-            db.set(key.clone(), Data::Array(vec_deque_data), None);
+            db.set(&key, Data::Array(vec_deque_data), None);
             // Return the length of array.
             let frame = Frame::Integer(list_len as i64);
             conn.write_frame(&frame).await.unwrap();
@@ -99,8 +98,8 @@ impl RPush {
     /// Will `panic` if `self.data` contains nested arrays.
     pub(crate) fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string(String::from("rpush"));
-        frame.push_string(self.list_key);
+        frame.push_bulk(Bytes::from("rpush"));
+        frame.push_bulk(self.list_key);
         frame.push_data(self.data);
 
         frame

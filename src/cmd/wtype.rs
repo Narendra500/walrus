@@ -9,15 +9,13 @@ use crate::{
 };
 
 pub struct Type {
-    key: String,
+    key: Bytes,
 }
 
 impl Type {
     /// Create a new `Type` command.
-    pub fn new(key: impl ToString) -> Self {
-        Type {
-            key: key.to_string(),
-        }
+    pub fn new(key: Bytes) -> Self {
+        Type { key }
     }
 
     /// Parse the `Type` command from a frame iterator.
@@ -26,7 +24,7 @@ impl Type {
     /// The frame must have 2 elements.
     /// TYPE key
     pub(crate) fn parse_frames(parse: &mut Parse) -> Result<Self, WalrusError> {
-        let key = parse.next_string()?;
+        let key = parse.next_bytes()?;
         Ok(Type::new(key))
     }
 
@@ -45,7 +43,7 @@ impl Type {
         let none_frame = Frame::Bulk(Bytes::from("none"));
         let list_frame = Frame::Bulk(Bytes::from("list"));
 
-        let maybe_data = db.get(self.key.as_str());
+        let maybe_data = db.get(&self.key);
         if let Some(data) = maybe_data {
             match data {
                 Data::Bytes(_) => conn.write_frame(&string_frame).await?,
@@ -64,8 +62,8 @@ impl Type {
     /// Convert `Type` instance to `Frame`.
     pub(crate) fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string("type".into());
-        frame.push_string(self.key);
+        frame.push_bulk(Bytes::from("type"));
+        frame.push_bulk(self.key);
 
         frame
     }

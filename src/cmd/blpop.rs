@@ -26,13 +26,13 @@ use crate::{
 /// list of keys will be popped.
 #[derive(Debug)]
 pub struct BLPop {
-    keys: Vec<String>,
+    keys: Vec<Bytes>,
     timeout: f64,
 }
 
 impl BLPop {
     /// Returns a new BLPop command.
-    pub fn new(keys: Vec<String>, timeout: f64) -> Self {
+    pub fn new(keys: Vec<Bytes>, timeout: f64) -> Self {
         Self { keys, timeout }
     }
 
@@ -42,7 +42,7 @@ impl BLPop {
     /// The array frame must contain at least three elements.
     /// BLPOP key [key ...] timeout
     pub(crate) fn parse_frames(parse: &mut crate::parse::Parse) -> Result<Self, WalrusError> {
-        let (keys, timeout) = parse.next_strings_with_timeout()?;
+        let (keys, timeout) = parse.next_bytes_with_timeout()?;
 
         Ok(Self::new(keys, timeout))
     }

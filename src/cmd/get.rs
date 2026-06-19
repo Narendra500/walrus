@@ -1,3 +1,5 @@
+use bytes::Bytes;
+
 use crate::{
     Connection,
     db::{Data, Db, double_to_bytes, int_to_bytes},
@@ -8,15 +10,13 @@ use crate::{
 
 /// Get the value of the key.
 pub struct Get {
-    key: String,
+    key: Bytes,
 }
 
 impl Get {
     /// Create a new `Get` instance which fetches `key`
-    pub fn new(key: impl ToString) -> Get {
-        Get {
-            key: key.to_string(),
-        }
+    pub fn new(key: Bytes) -> Get {
+        Get { key }
     }
 
     /// Parse a `Get` instance from array frame.
@@ -27,7 +27,7 @@ impl Get {
     /// Expects an array frame containing exactly two entries.
     /// GET key
     pub(crate) fn parse_frame(parse: &mut Parse) -> Result<Get, WalrusError> {
-        let key = parse.next_string()?;
+        let key = parse.next_bytes()?;
         Ok(Get { key })
     }
 
@@ -63,8 +63,8 @@ impl Get {
     /// Convert `Get` instance to `Frame`.
     pub(crate) fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string("get".to_string());
-        frame.push_string(self.key);
+        frame.push_bulk(Bytes::from("get"));
+        frame.push_bulk(self.key);
         frame
     }
 }

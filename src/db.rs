@@ -1,3 +1,4 @@
+use ahash;
 use bytes::Bytes;
 use futures::{StreamExt, stream::FuturesUnordered};
 use std::{
@@ -31,20 +32,21 @@ struct Entry {
 
 /// State of the Db.
 struct State {
-    entries: HashMap<String, Entry>,
+    /// Hashmap using ahash hashing algorithm providing better performance compared to SipHash.
+    entries: HashMap<Bytes, Entry, ahash::RandomState>,
 
     /// Tracks key's Time To Live.
     /// Binary Tree Set is used to the value expiring next.
     /// It is possible to have two values expire at same instant.
     /// A unique key is used to break these ties.
-    expirations: BTreeSet<(Instant, String)>,
+    expirations: BTreeSet<(Instant, Bytes)>,
 
     /// Indicates if Db instance is shutting down. Background tasks are signaled to exit
     /// when this is true.
     shutdown: bool,
 
     /// Map of keys to Notification triggers.
-    blocking_keys: HashMap<String, Arc<Notify>>,
+    blocking_keys: HashMap<Bytes, Arc<Notify>>,
 }
 
 /// Shared state is wrapped in Mutex.
@@ -89,7 +91,7 @@ impl Db {
     pub(crate) fn new() -> Db {
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
-                entries: HashMap::new(),
+                entries: HashMap::default(),
                 expirations: BTreeSet::new(),
                 shutdown: false,
                 blocking_keys: HashMap::new(),
@@ -106,7 +108,7 @@ impl Db {
     /// Get the value associated with a key.
     ///
     /// Returns `None` if no value is associated with the key.
-    pub(crate) fn get(&self, key: &str) -> Option<Data> {
+    pub(crate) fn get(&self, key: &Bytes) -> Option<Data> {
         let state = self.shared.state.lock().unwrap();
         // clone here is shallow as data is stored using `Bytes`.
         state.entries.get(key).map(|entry| entry.data.clone())
@@ -115,7 +117,7 @@ impl Db {
     /// Insert key value pair into db.
     /// Optional expires_at determines the instant when key will expire.
     /// If key already exists, its old value is replaced.
-    pub(crate) fn set(&self, key: String, value: Data, expire: Option<Duration>) {
+    pub(crate) fn set(&self, key: &Bytes, value: Data, expire: Option<Duration>) {
         let mut state = self.shared.state.lock().unwrap();
 
         let mut notify = false;
@@ -152,7 +154,7 @@ impl Db {
 
         // Track the expiration of new entry.
         if let Some(when) = expires_at {
-            state.expirations.insert((when, key));
+            state.expirations.insert((when, key.clone()));
         }
 
         // Release the Mutex before notifying the background task.
@@ -168,9 +170,9 @@ impl Db {
     /// Pop the first element of an array.
     /// Returns `None` if the array is empty or key does not exist.
     /// Returns `Err` if key holds a non-array value.
-    pub(crate) fn pop_front(&self, key: &str) -> Result<Option<Data>, WalrusError> {
+    pub(crate) fn pop_front(&self, key: &Bytes) -> Result<Option<Data>, WalrusError> {
         let mut state = self.shared.state.lock().unwrap();
-        let maybe_entry = state.entries.get_mut(key.into());
+        let maybe_entry = state.entries.get_mut(key);
 
         if let Some(entry) = maybe_entry {
             match entry.data {
@@ -191,9 +193,9 @@ impl Db {
     /// Pop the last element of an array.
     /// Returns `None` if the array is empty or key does not exist.
     /// Returns `Err` if key holds a non-array value.
-    pub(crate) fn pop_back(&self, key: &str) -> Result<Option<Data>, WalrusError> {
+    pub(crate) fn pop_back(&self, key: &Bytes) -> Result<Option<Data>, WalrusError> {
         let mut state = self.shared.state.lock().unwrap();
-        let maybe_entry = state.entries.get_mut(key.into());
+        let maybe_entry = state.entries.get_mut(key);
 
         if let Some(entry) = maybe_entry {
             match entry.data {
@@ -214,7 +216,7 @@ impl Db {
     }
 
     /// Notify a connection waiting on a key.
-    pub(crate) fn notify_blocked(&self, key: &str) {
+    pub(crate) fn notify_blocked(&self, key: &Bytes) {
         let state = self.shared.state.lock().unwrap();
         state
             .blocking_keys
@@ -223,11 +225,11 @@ impl Db {
     }
 
     /// Get or create a notifier for a key.
-    pub(crate) fn get_or_create_notifier(&self, key: &str) -> Arc<Notify> {
+    pub(crate) fn get_or_create_notifier(&self, key: &Bytes) -> Arc<Notify> {
         let mut state = self.shared.state.lock().unwrap();
         state
             .blocking_keys
-            .entry(key.to_string())
+            .entry(key.clone())
             .or_insert_with(|| Arc::new(Notify::new()))
             .clone()
     }

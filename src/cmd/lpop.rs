@@ -1,3 +1,5 @@
+use bytes::Bytes;
+
 use crate::{
     Connection,
     db::{Data, Db},
@@ -12,13 +14,13 @@ use crate::{
 /// If the list is empty or doesn't exist, `Frame::Null` is returned.
 /// If `count` is greater than length of the list, the count is clamped to the length of the list.
 pub struct LPop {
-    list_key: String,
+    list_key: Bytes,
     count: i64,
 }
 
 impl LPop {
     /// Return a new LPop command.
-    pub fn new(list_key: String, count: Option<i64>) -> Self {
+    pub fn new(list_key: Bytes, count: Option<i64>) -> Self {
         if let Some(count) = count {
             Self { list_key, count }
         }
@@ -36,7 +38,7 @@ impl LPop {
     /// The array frame must have atleast 2 elements.
     /// LPOP list_key <count>
     pub(crate) fn parse_frames(parse: &mut crate::parse::Parse) -> Result<Self, WalrusError> {
-        let list_key = parse.next_string()?;
+        let list_key = parse.next_bytes()?;
         // If count was not given then default of 1 is taken.
         let count = parse.next_int().unwrap_or(1);
         Ok(Self::new(list_key, Some(count)))
@@ -100,8 +102,8 @@ impl LPop {
     /// Convert `LPop` instance to `Frame`.
     pub(crate) fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string("lpop".into());
-        frame.push_string(self.list_key);
+        frame.push_bulk(Bytes::from("lpop"));
+        frame.push_bulk(self.list_key);
         frame.push_int(self.count);
 
         frame

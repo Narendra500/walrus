@@ -13,7 +13,7 @@ use std::time::Duration;
 ///
 /// If key is already present it's value is overwritten.
 pub struct Set {
-    key: String,
+    key: Bytes,
     value: Bytes,
     expire: Option<Duration>,
 }
@@ -21,12 +21,8 @@ pub struct Set {
 impl Set {
     /// Creates a new `Set` command which sets `key` to `value`
     /// If `expire` is provided then key will expire after specified duration.
-    pub fn new(key: impl ToString, value: Bytes, expire: Option<Duration>) -> Set {
-        Set {
-            key: key.to_string(),
-            value,
-            expire,
-        }
+    pub fn new(key: Bytes, value: Bytes, expire: Option<Duration>) -> Set {
+        Set { key, value, expire }
     }
 
     /// Parse a `Set` instance from a received array frame.
@@ -39,7 +35,7 @@ impl Set {
     /// SET key value [EX seconds|PX milliseconds]
     pub(crate) fn parse_frames(parse: &mut Parse) -> Result<Set, WalrusError> {
         // Get key from the frame.
-        let key = parse.next_string()?;
+        let key = parse.next_bytes()?;
         // Get the value to set from the frame.
         let value = parse.next_bytes()?;
         // Optional field.
@@ -71,9 +67,9 @@ impl Set {
         // optimize storage of data before inserting into db.
         let value = db::optimize_storage(self.value);
 
-        db.set(self.key, value, self.expire);
+        db.set(&self.key, value, self.expire);
 
-        let response = Frame::Simple("OK".to_string());
+        let response = Frame::Bulk(Bytes::from("OK"));
         conn.write_frame(&response).await?;
 
         Ok(())
@@ -82,8 +78,8 @@ impl Set {
     /// Converts `Set` instance to `Frame`, consumes self.
     pub fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string(String::from("set"));
-        frame.push_string(self.key);
+        frame.push_bulk(Bytes::from("set"));
+        frame.push_bulk(self.key);
         frame.push_bulk(self.value);
 
         if let Some(ms) = self.expire {
@@ -91,7 +87,7 @@ impl Set {
             // 1. SET key value EX seconds
             // 2. SET key value PX milliseconds
             // The later is used here for greater precision.
-            frame.push_string(String::from("px"));
+            frame.push_bulk(Bytes::from("px"));
             frame.push_int(ms.as_millis() as i64);
         }
 

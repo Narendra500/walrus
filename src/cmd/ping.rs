@@ -39,7 +39,7 @@ impl Ping {
     /// Send back `Ping` message to the client.
     pub(crate) async fn execute(self, conn: &mut Connection) -> Result<(), WalrusError> {
         let response = match self.msg {
-            None => Frame::Simple(String::from("pong")),
+            None => Frame::Bulk(Bytes::from("PONG")),
             Some(msg) => Frame::Bulk(msg),
         };
 
@@ -52,7 +52,7 @@ impl Ping {
     /// Convert `Ping` instance to a `Frame` consuming `self`.
     pub(crate) fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string(String::from("ping"));
+        frame.push_bulk(Bytes::from("ping"));
 
         if let Some(msg) = self.msg {
             frame.push_bulk(msg);

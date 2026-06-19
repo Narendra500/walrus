@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use bytes::Bytes;
+
 use crate::{
     Connection,
     db::{Data, Db},
@@ -10,7 +12,7 @@ use crate::{
 
 /// Push a `Data` item at the start of the list with the key `list_key`.
 pub struct LPush {
-    list_key: String,
+    list_key: Bytes,
     /// Array containing the data to be pushed to the list.
     data: VecDeque<Data>,
 }
@@ -18,11 +20,8 @@ pub struct LPush {
 impl LPush {
     /// Create a new `LPush` command which pushes the data to the start of list
     /// with key `list_key`.
-    pub fn new(list_key: impl ToString, data: VecDeque<Data>) -> LPush {
-        LPush {
-            list_key: list_key.to_string(),
-            data,
-        }
+    pub fn new(list_key: Bytes, data: VecDeque<Data>) -> LPush {
+        LPush { list_key, data }
     }
 
     /// Parse a `LPush` instance from an array frame.
@@ -32,7 +31,7 @@ impl LPush {
     /// Expects an array containg atleast 3 entries.
     /// LPush list_key array_of_items_to_push
     pub(crate) fn parse_frames(parse: &mut Parse) -> Result<LPush, WalrusError> {
-        let list_key = parse.next_string()?;
+        let list_key = parse.next_bytes()?;
         let value = parse.next_array()?;
         Ok(LPush {
             list_key,
@@ -88,7 +87,7 @@ impl LPush {
             data.make_contiguous().reverse();
             // Get the length of the data before it is moved into the db.
             let list_len = data.len();
-            db.set(key.clone(), Data::Array(data), None);
+            db.set(&key, Data::Array(data), None);
             // Return the length of array.
             let frame = Frame::Integer(list_len as i64);
             conn.write_frame(&frame).await.unwrap();
@@ -104,8 +103,8 @@ impl LPush {
     /// Will `panic` if `self.data` contains nested arrays.
     pub(crate) fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string(String::from("lpush"));
-        frame.push_string(self.list_key);
+        frame.push_bulk(Bytes::from("lpush"));
+        frame.push_bulk(self.list_key);
         frame.push_data(self.data);
 
         frame

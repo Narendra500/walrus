@@ -52,7 +52,7 @@ impl Client {
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
-                Frame::Simple(value) => Ok(value.into()),
+                Frame::Simple(value) => Ok(Bytes::from(value)),
                 Frame::Bulk(value) => Ok(value),
                 Frame::Error(err) => Err(err.into()),
                 _ => Err("Invalid response by server".into()),
@@ -63,7 +63,7 @@ impl Client {
     }
 
     /// `Get` the `value` associated with the `key`
-    pub async fn get(&mut self, key: String) -> Result<Option<Bytes>, WalrusError> {
+    pub async fn get(&mut self, key: Bytes) -> Result<Option<Bytes>, WalrusError> {
         let frame = Get::new(key).into_frame();
         self.connection.write_frame(&frame).await?;
 
@@ -74,7 +74,7 @@ impl Client {
                 // `Null` frame is sent by server, if key has no associated value.
                 Frame::Null => Ok(None),
                 Frame::Error(err) => Err(err.into()),
-                _ => Err("Invalid response by server".into()),
+                frame => Err("Invalid response by server".into()),
             }
         } else {
             Err("No response from server".into())
@@ -85,16 +85,16 @@ impl Client {
     /// Takes optional expiration duration.
     pub async fn set(
         &mut self,
-        key: String,
+        key: Bytes,
         value: Bytes,
         expire: Option<Duration>,
-    ) -> Result<String, WalrusError> {
+    ) -> Result<Bytes, WalrusError> {
         let frame = Set::new(key, value, expire).into_frame();
         self.connection.write_frame(&frame).await?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
-                Frame::Simple(value) => Ok(value),
+                Frame::Bulk(value) => Ok(value),
                 Frame::Error(err) => Err(err.into()),
                 _ => Err("Invalid response by server".into()),
             }
@@ -108,7 +108,7 @@ impl Client {
     /// `WRONGTYPE` error is returned when the given key is not a list.
     pub async fn rpush(
         &mut self,
-        list_key: String,
+        list_key: Bytes,
         data: VecDeque<Data>,
     ) -> Result<i64, WalrusError> {
         let frame = RPush::new(list_key, data).into_frame();
@@ -132,7 +132,7 @@ impl Client {
     /// So \[1, 2 ,3\] becomes \[3, 2, 1, ...existing elements in the list\].
     pub async fn lpush(
         &mut self,
-        list_key: String,
+        list_key: Bytes,
         data: VecDeque<Data>,
     ) -> Result<i64, WalrusError> {
         let frame = LPush::new(list_key, data).into_frame();
@@ -157,7 +157,7 @@ impl Client {
     /// Returns 'Value of out range' error if `count` is negative.
     pub async fn lpop(
         &mut self,
-        list_key: String,
+        list_key: Bytes,
         count: Option<i64>,
     ) -> Result<Option<Vec<Data>>, WalrusError> {
         let frame = LPop::new(list_key, count).into_frame();
@@ -192,7 +192,7 @@ impl Client {
     /// `None` if timeout was reached or if none of the keys were found.
     pub async fn blpop(
         &mut self,
-        keys: Vec<String>,
+        keys: Vec<Bytes>,
         timeout: f64,
     ) -> Result<Option<Vec<Data>>, WalrusError> {
         let frame = BLPop::new(keys, timeout).into_frame();
@@ -212,7 +212,7 @@ impl Client {
     /// Returns the length of the list if successful or `WRONGTYPE` error if data item with
     /// `list_key` is not a list.
     /// Returns `0` if no list with `list_key` is found.
-    pub async fn llen(&mut self, list_key: impl ToString) -> Result<i64, WalrusError> {
+    pub async fn llen(&mut self, list_key: Bytes) -> Result<i64, WalrusError> {
         let frame = LLen::new(list_key).into_frame();
         self.connection.write_frame(&frame).await?;
 
@@ -238,7 +238,7 @@ impl Client {
     /// Returns array of `Data` items if successful else `WalrusError` is returned.
     pub async fn lrange(
         &mut self,
-        list_key: String,
+        list_key: Bytes,
         start_index: i64,
         end_index: i64,
     ) -> Result<Vec<Data>, WalrusError> {
@@ -262,14 +262,14 @@ impl Client {
     /// Returns "string" for Bytes, Integer, Double and String.
     /// Although Integer and Double are stored as i64 and f64 internally, the type
     /// presented is string.
-    pub async fn wtype(&mut self, key: String) -> Result<String, WalrusError> {
+    pub async fn wtype(&mut self, key: Bytes) -> Result<Bytes, WalrusError> {
         let frame = Type::new(key).into_frame();
         self.connection.write_frame(&frame).await?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
-                Frame::Simple(value) => Ok(value.into()),
-                Frame::Bulk(value) => Ok(String::from_utf8_lossy(&value[..]).into()),
+                Frame::Simple(value) => Ok(Bytes::from(value)),
+                Frame::Bulk(value) => Ok(value),
                 Frame::Error(err) => Err(err.into()),
                 _ => Err("Invalid response by server".into()),
             }
@@ -300,6 +300,14 @@ mod tests {
             .collect()
     }
 
+    fn random_bytes(len: usize) -> Bytes {
+        rand::rng()
+            .sample_iter(&Alphanumeric)
+            .take(len)
+            .map(u8::from)
+            .collect()
+    }
+
     fn random_data_array(len: usize) -> VecDeque<Data> {
         let data_type: Vec<Data> = vec![
             Data::String("".into()),
@@ -315,7 +323,7 @@ mod tests {
             let data = match data_type {
                 Data::String(_) => Data::String(random_string(6)),
                 Data::Integer(_) => Data::Integer(random::<i64>()),
-                Data::Bytes(_) => Data::Bytes(Bytes::from(random_string(6))),
+                Data::Bytes(_) => Data::Bytes(random_bytes(6)),
                 _ => unreachable!(),
             };
             data_vec.push_back(data);
@@ -331,7 +339,7 @@ mod tests {
             .unwrap();
         let ping_response = client.ping(None).await.unwrap();
 
-        assert_eq!(ping_response, Bytes::from("pong"));
+        assert_eq!(ping_response, Bytes::from("PONG"));
     }
 
     #[tokio::test]
@@ -357,7 +365,7 @@ mod tests {
             ping_response_list.push(client.ping(None).await.unwrap());
         }
 
-        let pong = String::from("pong");
+        let pong = Bytes::from("PONG");
         for response in ping_response_list.iter() {
             assert_eq!(*response, pong);
         }
@@ -388,7 +396,7 @@ mod tests {
             .await
             .unwrap();
 
-        let key = random_string(6);
+        let key = random_bytes(6);
         let value = Bytes::from("value1 value2 value3 value4");
 
         let set_response = client.set(key, value, None).await.unwrap();
@@ -405,7 +413,7 @@ mod tests {
             .await
             .unwrap();
 
-        let key = random_string(6);
+        let key = random_bytes(6);
         let value = Bytes::from("value1 value2 value3 value4");
         let expire = Duration::from_millis(1000);
 
@@ -417,7 +425,7 @@ mod tests {
 
         // sleep until the key is expired.
         sleep_until(now + expire).await;
-        let get_response = client.get(key.clone()).await.unwrap();
+        let get_response = client.get(key).await.unwrap();
 
         // the response must be None.
         match get_response {
@@ -437,7 +445,7 @@ mod tests {
             .await
             .unwrap();
 
-        let key = random_string(6);
+        let key = random_bytes(6);
         let original_value = Bytes::from("value1 value2 value3 value4");
         let expire = Duration::from_millis(1000);
 
@@ -464,18 +472,18 @@ mod tests {
         let mut client = Client::connect(SERVER_IPADDRESS.to_string(), Some(32))
             .await
             .unwrap();
-        let key = random_string(6);
+        let key = random_bytes(6);
         let value = "5000.00";
 
         let set_response = client
             .set(key.clone(), Bytes::from(value), None)
             .await
             .unwrap();
-        println!("set_response: {set_response}");
+        println!("set_response: {set_response:?}");
 
         assert_eq!("OK", set_response);
 
-        let get_response = client.get(key.clone()).await.unwrap().unwrap();
+        let get_response = client.get(key).await.unwrap().unwrap();
         println!("get_response: {get_response:?}");
 
         assert_eq!(get_response, Bytes::from(value));
@@ -489,7 +497,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list_key = random_string(6);
+        let list_key = random_bytes(6);
         let data = random_data_array(3);
         let len = data.len() as i64;
 
@@ -507,7 +515,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list_key = random_string(6);
+        let list_key = random_bytes(6);
         let data = random_data_array(3);
         let len = data.len() as i64;
 
@@ -517,10 +525,10 @@ mod tests {
         let data2 = VecDeque::from([
             Data::String(random_string(6)),
             Data::Integer(random::<i64>()),
-            Data::Bytes(Bytes::from(random_string(6))),
+            Data::Bytes(Bytes::from(random_bytes(6))),
         ]);
         let len2 = data2.len() as i64;
-        let lpush_response = client.lpush(list_key.clone(), data2).await.unwrap();
+        let lpush_response = client.lpush(list_key, data2).await.unwrap();
 
         assert_eq!(lpush_response, len + len2);
     }
@@ -534,7 +542,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list_key = random_string(6);
+        let list_key = random_bytes(6);
         let data = random_data_array(3);
         let len = data.len() as i64;
 
@@ -566,7 +574,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list_key = random_string(6);
+        let list_key = random_bytes(6);
         let mut data = random_data_array(3);
         let len = data.len() as i64;
 
@@ -593,7 +601,7 @@ mod tests {
     #[tokio::test]
     async fn lrange_test_negative_indices() {
         let mut client = Client::connect(SERVER_IPADDRESS, Some(32)).await.unwrap();
-        let list_key = random_string(8);
+        let list_key = random_bytes(8);
 
         let data = VecDeque::from([Data::Integer(1), Data::Integer(2), Data::Integer(3)]);
 
@@ -615,7 +623,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list_key = random_string(6);
+        let list_key = random_bytes(6);
         let data = random_data_array(3);
         let len = data.len() as i64;
 
@@ -637,7 +645,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list_key = random_string(6);
+        let list_key = random_bytes(6);
         let data = random_data_array(6);
 
         // Send data to create the list with.
@@ -662,7 +670,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list_key = random_string(6);
+        let list_key = random_bytes(6);
         let data = random_data_array(6);
 
         // Send data to create the list with.
@@ -689,7 +697,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list_key = random_string(6);
+        let list_key = random_bytes(6);
         let data = random_data_array(6);
 
         // Send data to create the list with.
@@ -715,7 +723,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list_key = random_string(6);
+        let list_key = random_bytes(6);
         let data = random_data_array(6);
 
         // Send data to create the list with.
@@ -735,7 +743,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list = random_string(6);
+        let list = random_bytes(6);
         let data = random_data_array(6);
 
         // First element of the list is expected to be popped.
@@ -759,7 +767,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list = random_string(6);
+        let list = random_bytes(6);
 
         // Start a timer to measure how lone it takes for blpop response.
         let start_time = tokio::time::Instant::now();
@@ -783,7 +791,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list = random_string(6);
+        let list = random_bytes(6);
         let data = random_data_array(1);
         let expected_value = data.front().unwrap().clone();
 
@@ -809,8 +817,8 @@ mod tests {
             .await
             .unwrap();
 
-        let key_empty = random_string(6);
-        let key_populated = random_string(6);
+        let key_empty = random_bytes(6);
+        let key_populated = random_bytes(6);
 
         let data = random_data_array(1);
         let expected_value = data[0].clone();
@@ -845,7 +853,7 @@ mod tests {
             .await
             .unwrap();
 
-        let key = random_string(6);
+        let key = random_bytes(6);
         let value = random_data_array(3);
 
         client.rpush(key.clone(), value.clone()).await.unwrap();
@@ -860,8 +868,8 @@ mod tests {
             .await
             .unwrap();
 
-        let key = random_string(6);
-        let value = random_string(6);
+        let key = random_bytes(6);
+        let value = random_bytes(6);
 
         client.set(key.clone(), value.into(), None).await.unwrap();
 
@@ -875,7 +883,7 @@ mod tests {
             .await
             .unwrap();
 
-        let key = random_string(6);
+        let key = random_bytes(6);
         let value = int_to_string(random::<i64>());
 
         client.set(key.clone(), value.into(), None).await.unwrap();
@@ -890,7 +898,7 @@ mod tests {
             .await
             .unwrap();
 
-        let key = random_string(6);
+        let key = random_bytes(6);
         let value = double_to_string(random::<f64>());
 
         client.set(key.clone(), value.into(), None).await.unwrap();
@@ -905,7 +913,7 @@ mod tests {
             .await
             .unwrap();
 
-        let key = random_string(6);
+        let key = random_bytes(6);
 
         let wtype_response = client.wtype(key).await.unwrap();
         assert_eq!(wtype_response, "none");

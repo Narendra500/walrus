@@ -1,3 +1,5 @@
+use bytes::Bytes;
+
 use crate::{
     Connection,
     db::{Data, Db},
@@ -8,16 +10,14 @@ use crate::{
 
 /// `LLen` command to get the length of a list.
 pub struct LLen {
-    list_key: String,
+    list_key: Bytes,
 }
 
 impl LLen {
     /// Returns a `LLen` instance.
     /// Takes key which can be of any datatype that implements `ToString`.
-    pub fn new(list_key: impl ToString) -> LLen {
-        LLen {
-            list_key: list_key.to_string(),
-        }
+    pub fn new(list_key: Bytes) -> LLen {
+        LLen { list_key }
     }
 
     /// Parse a `LLen` instance from an array frame.
@@ -27,7 +27,7 @@ impl LLen {
     /// Expects an array containing 2 entries.
     /// LLEN list_key
     pub(crate) fn parse_frames(parse: &mut Parse) -> Result<LLen, WalrusError> {
-        let list_key = parse.next_string()?;
+        let list_key = parse.next_bytes()?;
         Ok(LLen { list_key })
     }
 
@@ -65,8 +65,8 @@ impl LLen {
     /// Convert `LLen` instance to `Frame`.
     pub(crate) fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string("llen".into());
-        frame.push_string(self.list_key);
+        frame.push_bulk(Bytes::from("llen"));
+        frame.push_bulk(self.list_key);
 
         frame
     }
