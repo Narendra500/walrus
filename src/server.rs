@@ -100,7 +100,12 @@ impl Listener {
         // Accept loop
         loop {
             match self.listener.accept().await {
-                Ok((socket, _)) => return Ok(socket),
+                Ok((socket, _)) => {
+                    // Disables Nagle's algorithm, thereby sending the packet instantly instead of
+                    // waiting for more data to send in a single larger packet.
+                    socket.set_nodelay(true)?;
+                    return Ok(socket);
+                }
                 Err(err) => {
                     if sleep_time > 64 {
                         // Failed too many times, return error.
