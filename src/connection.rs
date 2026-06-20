@@ -53,9 +53,11 @@ impl Connection {
                 return Ok(Some(frame));
             }
 
-            // Not enough buffered data to parse the frame, Try to read more from the
-            // socket.
-            //
+            // Not enough buffered data to parse a full frame.
+            // flush the current contents of the buffer to stream.
+            self.stream.flush().await?;
+
+            // Wait for client to send more data
             // If number of bytes read into buffer is 0, then the stream has ended.
             if 0 == self.stream.read_buf(&mut self.buffer).await? {
                 // If the stream ended with no data in the buffer it is a clean shutdown.
@@ -131,9 +133,7 @@ impl Connection {
             _ => self.write_val(frame).await?,
         }
 
-        // The writes above are to the buffered stream. `flush` writes the remaining contents
-        // of the buffer to the socket.
-        self.stream.flush().await
+        Ok(())
     }
 
     /// Write a frame literal (non array) to the stream.

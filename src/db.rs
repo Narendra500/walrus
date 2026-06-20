@@ -1,9 +1,13 @@
 use ahash;
 use bytes::Bytes;
+use dashmap::DashMap;
 use futures::{StreamExt, stream::FuturesUnordered};
 use std::{
-    collections::{BTreeSet, HashMap, VecDeque},
-    sync::{Arc, Mutex},
+    collections::{BTreeSet, VecDeque},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tokio::{
     sync::Notify,
@@ -32,26 +36,28 @@ struct Entry {
 
 /// State of the Db.
 struct State {
-    /// Hashmap using ahash hashing algorithm providing better performance compared to SipHash.
-    entries: HashMap<Bytes, Entry, ahash::RandomState>,
+    /// Dashmap using ahash hashing algorithm providing better performance compared to SipHash.
+    entries: DashMap<Bytes, Entry, ahash::RandomState>,
 
     /// Tracks key's Time To Live.
     /// Binary Tree Set is used to the value expiring next.
     /// It is possible to have two values expire at same instant.
     /// A unique key is used to break these ties.
-    expirations: BTreeSet<(Instant, Bytes)>,
+    /// std::sync::Mutex is used here as its cheaper to just wait for BTreeSet operation than wait
+    /// for context switiching if using tokio::sync::Mutex
+    expirations: Mutex<BTreeSet<(Instant, Bytes)>>,
 
     /// Indicates if Db instance is shutting down. Background tasks are signaled to exit
     /// when this is true.
-    shutdown: bool,
+    shutdown: AtomicBool,
 
     /// Map of keys to Notification triggers.
-    blocking_keys: HashMap<Bytes, Arc<Notify>>,
+    blocking_keys: DashMap<Bytes, Arc<Notify>>,
 }
 
-/// Shared state is wrapped in Mutex.
+/// Shared state.
 struct Shared {
-    state: Mutex<State>,
+    state: State,
     /// Notifies the background task handling entry expiration.
     /// The background task waits to be notified, then checks for expired values
     /// or the shutdown signal.
@@ -90,12 +96,12 @@ impl Db {
     /// Create a new empty `Db` instance.
     pub(crate) fn new() -> Db {
         let shared = Arc::new(Shared {
-            state: Mutex::new(State {
-                entries: HashMap::default(),
-                expirations: BTreeSet::new(),
-                shutdown: false,
-                blocking_keys: HashMap::new(),
-            }),
+            state: State {
+                entries: DashMap::default(),
+                expirations: Mutex::new(BTreeSet::new()),
+                shutdown: AtomicBool::new(false),
+                blocking_keys: DashMap::new(),
+            },
             background_task: Notify::new(),
         });
 
@@ -109,17 +115,18 @@ impl Db {
     ///
     /// Returns `None` if no value is associated with the key.
     pub(crate) fn get(&self, key: &Bytes) -> Option<Data> {
-        let state = self.shared.state.lock().unwrap();
         // clone here is shallow as data is stored using `Bytes`.
-        state.entries.get(key).map(|entry| entry.data.clone())
+        self.shared
+            .state
+            .entries
+            .get(key)
+            .map(|entry| entry.data.clone())
     }
 
     /// Insert key value pair into db.
     /// Optional expires_at determines the instant when key will expire.
     /// If key already exists, its old value is replaced.
     pub(crate) fn set(&self, key: &Bytes, value: Data, expire: Option<Duration>) {
-        let mut state = self.shared.state.lock().unwrap();
-
         let mut notify = false;
 
         let expires_at = expire.map(|duration| {
@@ -128,7 +135,9 @@ impl Db {
 
             // Set notify to true if new key will expire earlier than current scheduled next
             // expiration.
-            notify = state
+            notify = self
+                .shared
+                .state
                 .next_expiration()
                 .map(|expiration| when < expiration)
                 .unwrap_or(true);
@@ -136,8 +145,8 @@ impl Db {
             when
         });
 
-        // Insert pair into hashmap, returns previous entry if key already present.
-        let prev = state.entries.insert(
+        // Insert pair into dashmap, returns previous entry if key already present.
+        let prev = self.shared.state.entries.insert(
             key.clone(),
             Entry {
                 data: value,
@@ -148,18 +157,24 @@ impl Db {
         // If prev entry was present then remove its expiration to avoid data leak.
         if let Some(prev) = prev {
             if let Some(when) = prev.expires_at {
-                state.expirations.remove(&(when, key.clone()));
+                self.shared
+                    .state
+                    .expirations
+                    .lock()
+                    .unwrap()
+                    .remove(&(when, key.clone()));
             }
         }
 
         // Track the expiration of new entry.
         if let Some(when) = expires_at {
-            state.expirations.insert((when, key.clone()));
+            self.shared
+                .state
+                .expirations
+                .lock()
+                .unwrap()
+                .insert((when, key.clone()));
         }
-
-        // Release the Mutex before notifying the background task.
-        // Avoids background task waking up to acquire mutex that function is still holding.
-        drop(state);
 
         // Notify the background task if it needs to update its state to reflect new expiration.
         if notify {
@@ -171,15 +186,14 @@ impl Db {
     /// Returns `None` if the array is empty or key does not exist.
     /// Returns `Err` if key holds a non-array value.
     pub(crate) fn pop_front(&self, key: &Bytes) -> Result<Option<Data>, WalrusError> {
-        let mut state = self.shared.state.lock().unwrap();
-        let maybe_entry = state.entries.get_mut(key);
+        let maybe_entry = self.shared.state.entries.get_mut(key);
 
-        if let Some(entry) = maybe_entry {
+        if let Some(mut entry) = maybe_entry {
             match entry.data {
                 Data::Array(ref mut arr) => {
                     let data = arr.pop_front();
                     if arr.is_empty() {
-                        state.entries.remove(key);
+                        self.shared.state.entries.remove(key);
                     }
                     Ok(data)
                 }
@@ -194,15 +208,14 @@ impl Db {
     /// Returns `None` if the array is empty or key does not exist.
     /// Returns `Err` if key holds a non-array value.
     pub(crate) fn pop_back(&self, key: &Bytes) -> Result<Option<Data>, WalrusError> {
-        let mut state = self.shared.state.lock().unwrap();
-        let maybe_entry = state.entries.get_mut(key);
+        let maybe_entry = self.shared.state.entries.get_mut(key);
 
-        if let Some(entry) = maybe_entry {
+        if let Some(mut entry) = maybe_entry {
             match entry.data {
                 Data::Array(ref mut arr) => {
                     let data = arr.pop_back();
                     if arr.is_empty() {
-                        state.entries.remove(key);
+                        self.shared.state.entries.remove(key);
                     }
                     Ok(data)
                 }
@@ -217,8 +230,8 @@ impl Db {
 
     /// Notify a connection waiting on a key.
     pub(crate) fn notify_blocked(&self, key: &Bytes) {
-        let state = self.shared.state.lock().unwrap();
-        state
+        self.shared
+            .state
             .blocking_keys
             .get(key)
             .map(|notify| notify.notify_one());
@@ -226,8 +239,8 @@ impl Db {
 
     /// Get or create a notifier for a key.
     pub(crate) fn get_or_create_notifier(&self, key: &Bytes) -> Arc<Notify> {
-        let mut state = self.shared.state.lock().unwrap();
-        state
+        self.shared
+            .state
             .blocking_keys
             .entry(key.clone())
             .or_insert_with(|| Arc::new(Notify::new()))
@@ -237,11 +250,10 @@ impl Db {
     /// Signals the background task to shutdown.
     fn shutdown_purge_task(&self) {
         // Set state.shutdown to `true` signaling the background task to shutdown.
-        let mut state = self.shared.state.lock().unwrap();
-        state.shutdown = true;
+        // Ordering::Relaxed cause exact CPU instruction ordering relative to other variables
+        // doesn't matter.
+        self.shared.state.shutdown.store(true, Ordering::Relaxed);
 
-        // drop the lock before notifying the task.
-        drop(state);
         self.shared.background_task.notify_one();
     }
 }
@@ -271,6 +283,8 @@ impl State {
     /// Get the `Instant` of next expiration if any.
     fn next_expiration(&self) -> Option<Instant> {
         self.expirations
+            .lock()
+            .unwrap()
             .iter()
             .next()
             .map(|expiration| expiration.0)
@@ -281,31 +295,27 @@ impl Shared {
     /// Purge all expired keys and return the `Instant` at which the next key will expire.
     /// Background task will sleep until this instant.
     fn purge_expired_keys(&self) -> Option<Instant> {
-        let mut state = self.state.lock().unwrap();
-
-        if state.shutdown {
+        if self.state.shutdown.load(Ordering::Relaxed) {
             // The database is shutting down. The background task should exit.
             return None;
         }
 
-        // For the borrow checker. `lock` returns `MutexGuard` and not a &mut State.
-        // The borrow checker can't check that it is safe to access `state.entries` and
-        // `state.expirations` mutably through the mutex guard.
-        // Hence a mutable reference to `State` is acquired outside the loop.
-        let state = &mut *state;
-
         // Find all keys scheduled to expire before `now`.
         let now = Instant::now();
 
-        while let Some(&(when, ref key)) = state.expirations.iter().next() {
+        while let Some(&(when, ref key)) = self.state.expirations.lock().unwrap().iter().next() {
             if when > now {
                 // Done purging, `when` is the instant at which the next key will expire.
                 // The worker task will wait until this instant.
                 return Some(when);
             }
-            // remove the expired entry from HashMap.
-            state.entries.remove(key);
-            state.expirations.remove(&(when, key.clone()));
+            // remove the expired entry from DashMap.
+            self.state.entries.remove(key);
+            self.state
+                .expirations
+                .lock()
+                .unwrap()
+                .remove(&(when, key.clone()));
         }
 
         None
@@ -313,7 +323,7 @@ impl Shared {
 
     /// Returns `true` if database is shutting down.
     fn is_shutdown(&self) -> bool {
-        self.state.lock().unwrap().shutdown
+        self.state.shutdown.load(Ordering::Relaxed)
     }
 }
 
