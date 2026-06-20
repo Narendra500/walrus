@@ -109,57 +109,6 @@ impl Frame {
         }
     }
 
-    /// Check if entire message can be decoded from 'src'
-    pub fn check(src: &mut Cursor<&[u8]>) -> Result<(), Error> {
-        match get_u8(src)? {
-            b'+' => {
-                get_line(src)?;
-                Ok(())
-            }
-            b'-' => {
-                get_line(src)?;
-                Ok(())
-            }
-            b':' => {
-                get_decimal(src)?;
-                Ok(())
-            }
-            b',' => {
-                get_double(src)?;
-                Ok(())
-            }
-            b'$' => {
-                if b'-' == peek_u8(src)? {
-                    // skip -1\r\n
-                    skip(src, 4)
-                } else {
-                    // Read the bulk string
-                    // `try_into` fails if the number doesn't fit in usize, for example on 32 bit
-                    // computer u64 may not fit in usize (32 bit)
-                    let len: usize = get_decimal(src)?.try_into()?;
-
-                    // skip `len` number of bytes + 2 (\r\n)
-                    skip(src, len + 2)
-                }
-            }
-            b'*' => {
-                if b'-' == peek_u8(src)? {
-                    // skip -1\r\n
-                    skip(src, 4)
-                } else {
-                    let len: usize = get_decimal(src)?.try_into()?;
-
-                    for _ in 0..len {
-                        Frame::check(src)?;
-                    }
-
-                    Ok(())
-                }
-            }
-            actual => Err(format!("protocol error; invalid frame type byte `{}`", actual).into()),
-        }
-    }
-
     /// Parse message from `src`
     pub fn parse(src: &mut Cursor<&[u8]>) -> Result<Frame, Error> {
         match get_u8(src)? {
