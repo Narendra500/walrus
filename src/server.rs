@@ -72,7 +72,7 @@ impl Listener {
             // Per connection handler.
             let mut handler = Handler {
                 db: self.db_holder.get_db(),
-                connection: Connection::new(socket, Some(32)),
+                connection: Connection::new(socket, Some(64)),
             };
 
             // Spawn a new task to process the connection.

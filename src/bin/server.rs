@@ -1,5 +1,5 @@
 use clap::Parser;
-use tokio::io::{self};
+use tokio::io::{self, AsyncWriteExt};
 use tokio::net::TcpListener;
 use walrus::server;
 
@@ -21,6 +21,7 @@ async fn main() -> io::Result<()> {
     };
 
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
+
     server::run(listener, port).await;
     Ok(())
 }

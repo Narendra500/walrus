@@ -60,7 +60,7 @@ impl Parse {
         while let Ok(frame) = self.next() {
             match frame {
                 Frame::Simple(data) => {
-                    // If this is the last element of the blpop command then must be the timeout.
+                    // If this is the last element of the blpop command then it must be the timeout.
                     if self.peek().is_err() {
                         // parse int or float from bytes.
                         let timeout = optimize_storage(Bytes::from(data));
@@ -101,7 +101,7 @@ impl Parse {
                     return Ok((result, timeout));
                 }
                 Frame::Bulk(bytes) => {
-                    // If this is the last element of the blpop command then must be the timeout.
+                    // If this is the last element of the blpop command then it must be the timeout.
                     if self.peek().is_err() {
                         // parse int or float from bytes.
                         let timeout = optimize_storage(bytes);
