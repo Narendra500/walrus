@@ -51,21 +51,32 @@ impl Command {
         // Convert the frame into a frame iterator using `Parse`.
         let mut parse = Parse::new(frame)?;
 
-        // Command names are case insensitive, hence given command is converted to lowercase.
-        let command_name = parse.next_string()?.to_lowercase();
+        // Command names are case insensitive, hence the given command will be compared using
+        // case-insensitive comparison.
+        let command_name = parse.next_bytes()?;
 
-        let command = match &command_name[..] {
-            "ping" => Command::Ping(Ping::parse_frames(&mut parse)?),
-            "set" => Command::Set(Set::parse_frames(&mut parse)?),
-            "get" => Command::Get(Get::parse_frame(&mut parse)?),
-            "rpush" => Command::RPush(RPush::parse_frames(&mut parse)?),
-            "lpush" => Command::LPush(LPush::parse_frames(&mut parse)?),
-            "lpop" => Command::LPop(LPop::parse_frames(&mut parse)?),
-            "blpop" => Command::BLPop(BLPop::parse_frames(&mut parse)?),
-            "llen" => Command::LLen(LLen::parse_frames(&mut parse)?),
-            "lrange" => Command::LRange(LRange::parse_frame(&mut parse)?),
-            "type" => Command::Type(Type::parse_frames(&mut parse)?),
-            _ => Command::Unknown(command_name),
+        let command = if command_name.eq_ignore_ascii_case(b"ping") {
+            Command::Ping(Ping::parse_frames(&mut parse)?)
+        } else if command_name.eq_ignore_ascii_case(b"set") {
+            Command::Set(Set::parse_frames(&mut parse)?)
+        } else if command_name.eq_ignore_ascii_case(b"get") {
+            Command::Get(Get::parse_frame(&mut parse)?)
+        } else if command_name.eq_ignore_ascii_case(b"rpush") {
+            Command::RPush(RPush::parse_frames(&mut parse)?)
+        } else if command_name.eq_ignore_ascii_case(b"lpush") {
+            Command::LPush(LPush::parse_frames(&mut parse)?)
+        } else if command_name.eq_ignore_ascii_case(b"lpop") {
+            Command::LPop(LPop::parse_frames(&mut parse)?)
+        } else if command_name.eq_ignore_ascii_case(b"blpop") {
+            Command::BLPop(BLPop::parse_frames(&mut parse)?)
+        } else if command_name.eq_ignore_ascii_case(b"llen") {
+            Command::LLen(LLen::parse_frames(&mut parse)?)
+        } else if command_name.eq_ignore_ascii_case(b"lrange") {
+            Command::LRange(LRange::parse_frame(&mut parse)?)
+        } else if command_name.eq_ignore_ascii_case(b"type") {
+            Command::Type(Type::parse_frames(&mut parse)?)
+        } else {
+            Command::Unknown(String::from_utf8_lossy(&command_name[..]).to_string())
         };
 
         Ok(command)

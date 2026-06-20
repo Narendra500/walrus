@@ -41,13 +41,13 @@ impl Set {
         // Optional field.
         let mut expire = None;
 
-        match parse.next_string() {
-            Ok(s) if s.to_uppercase() == "EX" => {
+        match parse.next_bytes() {
+            Ok(s) if s.eq_ignore_ascii_case(b"ex") => {
                 // Expiration in seconds, next value must be an integer.
                 let secs = parse.next_int()?;
                 expire = Some(Duration::from_secs(secs as u64));
             }
-            Ok(s) if s.to_uppercase() == "PX" => {
+            Ok(s) if s.eq_ignore_ascii_case(b"px") => {
                 // Expiration in milliseconds, next value must be an integer.
                 let ms = parse.next_int()?;
                 expire = Some(Duration::from_millis(ms as u64));
