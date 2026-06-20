@@ -264,7 +264,7 @@ fn get_u8(src: &mut Cursor<&[u8]>) -> Result<u8, Error> {
 
 /// Skip `n` bytes advancing the cursor position by `n`.
 fn skip(src: &mut Cursor<&[u8]>, n: usize) -> Result<(), Error> {
-    if !src.has_remaining() {
+    if src.remaining() < n {
         return Err(Error::Incomplete);
     }
 
