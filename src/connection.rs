@@ -77,33 +77,22 @@ impl Connection {
         // Location starts from 0 when new cursor instance is created.
         let mut buf = Cursor::new(&self.buffer[..]);
 
-        // First check if a frame can be parsed.
-        match Frame::check(&mut buf) {
-            Ok(_) => {
-                // The check function advances the cursor position to the end of
-                // the frame. Since the position starts from 0, len of the frame is
-                // current position. The position is <message>\r\n<HERE>.
+        // Parse the frame, necessary datastructures are allocated and frame
+        // is returned.
+        //
+        // If the encoded frame is invalid, an error is returned.
+        match Frame::parse(&mut buf) {
+            Ok(frame) => {
                 let len = buf.position() as usize;
-
-                // set cursor position back to 0 before parsing the frame.
-                buf.set_position(0);
-
-                // Parse the frame, necessary datastructures are allocated and frame
-                // is returned.
-                //
-                // If the encoded frame is invalid, an error is returned.
-                let frame = Frame::parse(&mut buf)?;
-
                 // Advance the internal 'cursor' of the ByteMut buffer to discard the
                 // parsed data.
                 self.buffer.advance(len);
-
                 Ok(Some(frame))
             }
             // Not enough data in the buffer to parse a full frame. More data must arrive
             // from the socket.
             //
-            // Err is not returned as as `Incomplete` 'error' is expected during the application
+            // Err is not returned as `Incomplete` 'error' is expected during the application
             // runtime.
             Err(crate::frame::Error::Incomplete) => Ok(None),
             // An unexpected error occured while parsing the frame. The connection will be closed.
