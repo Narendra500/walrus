@@ -31,7 +31,7 @@ struct Handler {
     connection: Connection,
 }
 
-const MAX_CONNECTIONS: usize = 1000;
+const MAX_CONNECTIONS: usize = 10000;
 
 /// Run the server.
 ///

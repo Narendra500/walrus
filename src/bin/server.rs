@@ -1,7 +1,14 @@
 use clap::Parser;
-use tokio::io::{self, AsyncWriteExt};
+use tokio::io::{self};
 use tokio::net::TcpListener;
 use walrus::server;
+
+#[cfg(not(target_env = "msvc"))]
+use jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 #[derive(Parser)]
 #[command(version, about, long_about= None)]
