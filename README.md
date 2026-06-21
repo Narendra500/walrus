@@ -14,7 +14,7 @@ Designed for maximum throughput and predictable latency, Walrus leverages the To
 
 ## Supported Commands
 
-* **Keys & Strings:** `GET`, `SET` (with `EX` and 'PX' expiration support), `Type`
+* **Keys & Strings:** `GET`, `SET` (with `EX` and `PX` expiration support), `Type`
 * **Lists:** `LPUSH`, `RPUSH`, `LPOP`, `LRANGE`, `BLPOP`
 * **Connection & Utility:** `PING`
 
