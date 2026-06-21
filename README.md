@@ -44,7 +44,7 @@ Walrus has been extensively profiled using `perf` and flamegraphs to eliminate k
 * `SET`: 1426126.62 requests per second, p50=0.447 msec
 * `GET`: 1426126.62 requests per second, p50=0.439 msec
 * `LPOP`: 1425313.62 requests per second, p50=0.439 msec
-* `LPUSH (needed to benchmark LRANGE)`: 2217294.75 requests per second, p50=0.359 msec
+* `LPUSH`: 2217294.75 requests per second, p50=0.359 msec
 * `LRANGE_100 (first 100 elements)`: 766636.00 requests per second, p50=0.823 msec
 * `LRANGE_300 (first 300 elements)`: 767224.19 requests per second, p50=0.799 msec
 * `LRANGE_500 (first 500 elements)`: 767106.44 requests per second, p50=0.815 msec
@@ -54,7 +54,7 @@ Walrus has been extensively profiled using `perf` and flamegraphs to eliminate k
 * `SET`: 399201.59 requests per second, p50=0.087 msec
 * `GET`: 399680.25 requests per second, p50=0.087 msec
 * `LPOP`: 399520.56 requests per second, p50=0.087 msec
-* `LPUSH (needed to benchmark LRANGE)`: 399680.25 requests per second, p50=0.087 msec
+* `LPUSH`: 399680.25 requests per second, p50=0.087 msec
 * `LRANGE_100 (first 100 elements)`: 363240.09 requests per second, p50=0.095 msec
 * `LRANGE_300 (first 300 elements)`: 363240.09 requests per second, p50=0.095 msec
 * `LRANGE_500 (first 500 elements)`: 363240.09 requests per second, p50=0.095 msec
@@ -64,7 +64,7 @@ Walrus has been extensively profiled using `perf` and flamegraphs to eliminate k
 * `SET`: 1287001.25 requests per second, p50=10.151 msec
 * `GET`: 1295336.75 requests per second, p50=9.927 msec
 * `LPOP`: 1949317.75 requests per second, p50=5.871 msec
-* `LPUSH (needed to benchmark LRANGE)`: 1976284.62 requests per second, p50=5.527 msec
+* `LPUSH`: 1976284.62 requests per second, p50=5.527 msec
 * `LRANGE_100 (first 100 elements)`: 768639.50 requests per second, p50=18.367 msec
 * `LRANGE_300 (first 300 elements)`: 761035.00 requests per second, p50=18.831 msec
 * `LRANGE_500 (first 500 elements)`: 761035.00 requests per second, p50=18.623 msec
