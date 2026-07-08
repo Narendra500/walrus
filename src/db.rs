@@ -128,6 +128,10 @@ impl Db {
     /// If key already exists, its old value is replaced.
     pub(crate) fn set(&self, key: &Bytes, value: Data, expire: Option<Duration>) {
         let mut notify = false;
+        // The `key` still refers to the Bytes from the BytesMut buffer, to avoid memory mapping copy
+        // it before storing. `value` maybe owned already if its not bytes.
+        let stored_key = Bytes::copy_from_slice(&key);
+        let stored_value = value.to_owned();
 
         let expires_at = expire.map(|duration| {
             // Calculate the instant at which key will expire.
@@ -149,7 +153,7 @@ impl Db {
         let prev = self.shared.state.entries.insert(
             key.clone(),
             Entry {
-                data: value,
+                data: stored_value,
                 expires_at,
             },
         );
@@ -162,7 +166,7 @@ impl Db {
                     .expirations
                     .lock()
                     .unwrap()
-                    .remove(&(when, key.clone()));
+                    .remove(&(when, stored_key.clone()));
             }
         }
 
@@ -173,7 +177,7 @@ impl Db {
                 .expirations
                 .lock()
                 .unwrap()
-                .insert((when, key.clone()));
+                .insert((when, stored_key));
         }
 
         // Notify the background task if it needs to update its state to reflect new expiration.
@@ -373,7 +377,7 @@ pub(crate) fn optimize_storage(bytes: Bytes) -> Data {
     } else if let Some(f) = parse::extract_f64(&bytes) {
         Data::Double(f)
     } else {
-        Data::Bytes(Bytes::from(bytes))
+        Data::Bytes(bytes)
     }
 }
 

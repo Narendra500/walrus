@@ -160,8 +160,7 @@ impl Parse {
             // Simple and Bulk frames can be representated raw bytes,
             // errors are considered separate types despite them stored
             // as strings.
-            Frame::Bulk(data) => Ok(data),
-            Frame::Simple(data) => Ok(Bytes::from(data)),
+            Frame::Bulk(data) | Frame::Simple(data) => Ok(data),
             frame => Err(format!(
                 "protocol error; expected simple or bulk string frame, got {frame:?}"
             )
