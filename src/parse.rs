@@ -175,8 +175,7 @@ impl Parse {
     pub(crate) fn next_string(&mut self) -> Result<String, ParseError> {
         match self.next()? {
             // Both Simple and Bulk frames can be parsed to UTF-8.
-            Frame::Simple(data) => Ok(data),
-            Frame::Bulk(data) => match str::from_utf8(&data[..]) {
+            Frame::Simple(data) | Frame::Bulk(data) => match str::from_utf8(&data[..]) {
                 Ok(str) => Ok(str.to_string()),
                 Err(_) => Err(format!("protocol error; invalid string").into()),
             },
@@ -193,7 +192,7 @@ impl Parse {
         match self.next()? {
             // Simple and Bulk can be parse to i64, error is returned if parsing fails.
             Frame::Simple(data) => {
-                extract_i64(data.as_bytes()).ok_or_else(|| "protocol error; invalid number".into())
+                extract_i64(&data).ok_or_else(|| "protocol error; invalid number".into())
             }
             Frame::Bulk(data) => {
                 extract_i64(&data).ok_or_else(|| "protocol error; invalid number".into())

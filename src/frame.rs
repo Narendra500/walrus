@@ -25,7 +25,7 @@ use crate::parse;
 /// So, every single Frame instance will take up roughly 40 bytes in memory (32 + 1 + padding).
 #[derive(Debug, PartialEq, Clone)]
 pub enum Frame {
-    Simple(String),
+    Simple(Bytes),
     Error(String),
     Integer(i64),
     Double(f64),
@@ -45,7 +45,7 @@ pub enum Error {
 impl Frame {
     /// Push Frame into an array frame.
     /// self needs to be an array frame.
-    /// Takes Simple, Bulk and Integer frames.
+    /// Takes Simple, Bulk, Integer and Double frames.
     pub(crate) fn push(&mut self, frame: Frame) {
         match frame {
             Frame::Simple(string) => self.push_string(string),
@@ -59,7 +59,7 @@ impl Frame {
 
     /// Push Frame::Simple(String) into an array frame.
     /// Will `panic` if called by non array frame.
-    pub(crate) fn push_string(&mut self, string: String) {
+    pub(crate) fn push_string(&mut self, string: Bytes) {
         match self {
             Frame::Array(frame) => frame.push(Frame::Simple(string)),
             _ => panic!("not an array frame"),
@@ -109,30 +109,22 @@ impl Frame {
         }
     }
 
-    /// Parse message from `src`
-    pub fn parse(src: &mut Cursor<&[u8]>) -> Result<Frame, Error> {
+    /// Check if a complete frame exists in the buffer without consuming it.
+    /// If a frame can be parsed then the length of the complete frame is returned in bytes.
+    pub fn check(src: &mut Cursor<&[u8]>) -> Result<usize, Error> {
+        let start = src.position() as usize;
         match get_u8(src)? {
-            b'+' => {
-                let line = get_line(src)?.to_vec();
-
-                let string = String::from_utf8(line)?;
-
-                Ok(Frame::Simple(string))
-            }
-            b'-' => {
-                let line = get_line(src)?.to_vec();
-
-                let string = String::from_utf8(line)?;
-
-                Ok(Frame::Error(string))
+            b'+' | b'-' => {
+                get_line(src)?;
+                Ok(src.position() as usize - start)
             }
             b':' => {
-                let number = get_decimal(src)?;
-                Ok(Frame::Integer(number))
+                get_decimal(src)?;
+                Ok(src.position() as usize - start)
             }
             b',' => {
-                let number = get_double(src)?;
-                Ok(Frame::Double(number))
+                get_double(src)?;
+                Ok(src.position() as usize - start)
             }
             b'$' => {
                 // $-1\r\n is Null
@@ -143,7 +135,7 @@ impl Frame {
                         return Err("protocol error; invalid frame format".into());
                     }
 
-                    Ok(Frame::Null)
+                    Ok(src.position() as usize - start)
                 } else {
                     // Read the bulk string
                     // `try_into` fails if the number doesn't fit in usize, for example on 32 bit
@@ -155,12 +147,10 @@ impl Frame {
                         return Err(Error::Incomplete);
                     }
 
-                    let data = Bytes::copy_from_slice(&src.chunk()[..len]);
-
                     // skip `len_inclusive_crlf` number of bytes
                     skip(src, len_inclusive_crlf)?;
 
-                    Ok(Frame::Bulk(data))
+                    Ok(src.position() as usize - start)
                 }
             }
             b'*' => {
@@ -171,9 +161,89 @@ impl Frame {
                         return Err("protocol error; invalid frame format".into());
                     }
 
-                    Ok(Frame::Null)
+                    Ok(src.position() as usize - start)
                 } else {
                     let len: usize = get_decimal(src)?.try_into()?;
+
+                    for _ in 0..len {
+                        Frame::check(src)?;
+                    }
+
+                    Ok(src.position() as usize - start)
+                }
+            }
+            b => {
+                return Err(format!(
+                    "protocol error; invalid frame format. Unexpected byte: {}",
+                    b
+                )
+                .into());
+            }
+        }
+    }
+
+    /// Parse message from `src`.
+    /// The frame contains just enough data to parse a frame, doesn't include the \r\n at the end of
+    /// the frame.
+    pub fn parse(src: &mut Bytes) -> Result<Frame, Error> {
+        // get_u8 panics if no data is avaiable in the buffer, but its safe here as check phase
+        // would have confirmed that enough data is available for a frame here.
+        match src.get_u8() {
+            b'+' => {
+                let line = get_line_from_bytes(src)?;
+
+                Ok(Frame::Simple(line))
+            }
+            b'-' => {
+                let line = get_line_from_bytes(src)?;
+                let err = String::from_utf8(line.to_vec())?;
+                Ok(Frame::Error(err))
+            }
+            b':' => {
+                let number = get_decimal_from_bytes(src)?;
+
+                Ok(Frame::Integer(number))
+            }
+            b',' => {
+                let number = get_double_from_bytes(src)?;
+                Ok(Frame::Double(number))
+            }
+            b'$' => {
+                // $-1\r\n is Null
+                if b'-' == peek_u8(src)? {
+                    let line = get_line_from_bytes(src)?;
+                    if *line != *b"-1" {
+                        return Err("protocol error; invalid frame format".into());
+                    }
+
+                    Ok(Frame::Null)
+                } else {
+                    // Read the bulk string
+                    // `try_into` fails if the number doesn't fit in usize, for example on 32 bit
+                    // computer u64 may not fit in usize (32 bit)
+                    let len: usize = get_decimal_from_bytes(src)?.try_into()?;
+                    // len + 2 to include the \r\n.
+                    if src.remaining() < len + 2 {
+                        return Err(Error::Incomplete);
+                    }
+
+                    let data = src.split_to(len);
+                    // skip the \r\n
+                    src.advance(2);
+
+                    Ok(Frame::Bulk(data))
+                }
+            }
+            b'*' => {
+                if b'-' == peek_u8(src)? {
+                    let line = get_line_from_bytes(src)?;
+                    if *line != *b"-1" {
+                        return Err("protocol error; invalid frame format".into());
+                    }
+
+                    Ok(Frame::Null)
+                } else {
+                    let len: usize = get_decimal_from_bytes(src)?.try_into()?;
                     let mut out_vec = Vec::with_capacity(len);
 
                     for _ in 0..len {
@@ -183,7 +253,13 @@ impl Frame {
                     Ok(Frame::Array(out_vec))
                 }
             }
-            _ => unimplemented!(),
+            b => {
+                return Err(format!(
+                    "protocol error; invalid frame format. Unexpected byte: {}",
+                    b
+                )
+                .into());
+            }
         }
     }
 
@@ -194,7 +270,7 @@ impl Frame {
 }
 
 /// Get byte at current cursor position without advancing the cursor.
-fn peek_u8(src: &mut Cursor<&[u8]>) -> Result<u8, Error> {
+fn peek_u8<T: Buf>(src: &mut T) -> Result<u8, Error> {
     if !src.has_remaining() {
         return Err(Error::Incomplete);
     }
@@ -229,10 +305,23 @@ fn get_decimal(src: &mut Cursor<&[u8]>) -> Result<i64, Error> {
     parse::extract_i64(line).ok_or_else(|| "protocol error; invalid frame format".into())
 }
 
+/// Read a CRLF terminated decimal.
+fn get_decimal_from_bytes(src: &mut Bytes) -> Result<i64, Error> {
+    let line = get_line_from_bytes(src)?;
+
+    parse::extract_i64(&line).ok_or_else(|| "protocol error; invalid frame format".into())
+}
+
 /// Read a CRLF terminated double.
 fn get_double(src: &mut Cursor<&[u8]>) -> Result<f64, Error> {
     let line = get_line(src)?;
     parse::extract_f64(line).ok_or_else(|| "protocol error; invalid frame format".into())
+}
+
+/// Read a CRLF terminated double.
+fn get_double_from_bytes(src: &mut Bytes) -> Result<f64, Error> {
+    let line = get_line_from_bytes(src)?;
+    parse::extract_f64(&line).ok_or_else(|| "protocol error; invalid frame format".into())
 }
 
 /// Get all bytes until next CRLF.
@@ -253,14 +342,27 @@ fn get_line<'a>(src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8], Error> {
     Err(Error::Incomplete)
 }
 
+/// Get all bytes until next CRLF.
+fn get_line_from_bytes(src: &mut Bytes) -> Result<Bytes, Error> {
+    let line_end = src
+        .windows(2)
+        .position(|window| window == b"\r\n")
+        .ok_or_else(|| Error::Other("internal error: CRLF missing in pre-checked frame".into()))?;
+
+    let line = src.split_to(line_end);
+    // skip \r\n
+    src.advance(2);
+
+    Ok(line)
+}
+
 impl fmt::Display for Frame {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Frame::Simple(string) => string.fmt(fmt),
             Frame::Error(err) => write!(fmt, "error: {err}"),
             Frame::Integer(num) => num.fmt(fmt),
             Frame::Double(num) => num.fmt(fmt),
-            Frame::Bulk(msg) => match str::from_utf8(&msg) {
+            Frame::Bulk(msg) | Frame::Simple(msg) => match str::from_utf8(&msg) {
                 // valid text
                 Ok(string) => string.fmt(fmt),
                 // print raw bytes

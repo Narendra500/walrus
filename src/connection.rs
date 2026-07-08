@@ -1,6 +1,6 @@
 use std::io::{self, Cursor};
 
-use bytes::{Buf, BytesMut};
+use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 
@@ -83,13 +83,14 @@ impl Connection {
         // is returned.
         //
         // If the encoded frame is invalid, an error is returned.
-        match Frame::parse(&mut buf) {
-            Ok(frame) => {
-                let len = buf.position() as usize;
-                // Advance the internal 'cursor' of the ByteMut buffer to discard the
-                // parsed data.
-                self.buffer.advance(len);
-                Ok(Some(frame))
+        match Frame::check(&mut buf) {
+            // Full frame is available to parse.
+            // len is inclusive of \r\n
+            Ok(len) => {
+                let frame_data = self.buffer.split_to(len);
+                let mut frozen_data = frame_data.freeze();
+                let frame = Frame::parse(&mut frozen_data)?;
+                return Ok(Some(frame));
             }
             // Not enough data in the buffer to parse a full frame. More data must arrive
             // from the socket.
@@ -130,7 +131,7 @@ impl Connection {
         match frame {
             Frame::Simple(message) => {
                 self.stream.write_u8(b'+').await?;
-                self.stream.write_all(message.as_bytes()).await?;
+                self.stream.write_all(&message).await?;
                 self.stream.write_all(b"\r\n").await?;
             }
             Frame::Error(err) => {

@@ -74,7 +74,7 @@ impl Client {
                 // `Null` frame is sent by server, if key has no associated value.
                 Frame::Null => Ok(None),
                 Frame::Error(err) => Err(err.into()),
-                frame => Err("Invalid response by server".into()),
+                _ => Err("Invalid response by server".into()),
             }
         } else {
             Err("No response from server".into())
@@ -292,14 +292,6 @@ mod tests {
 
     const SERVER_IPADDRESS: &str = "127.0.0.1:6380";
 
-    fn random_string(len: usize) -> String {
-        rand::rng()
-            .sample_iter(&Alphanumeric)
-            .take(len)
-            .map(char::from)
-            .collect()
-    }
-
     fn random_bytes(len: usize) -> Bytes {
         rand::rng()
             .sample_iter(&Alphanumeric)
@@ -321,7 +313,7 @@ mod tests {
             let data_type_index = (random::<u64>() % data_type.len() as u64) as usize;
             let data_type = data_type[data_type_index].clone();
             let data = match data_type {
-                Data::String(_) => Data::String(random_string(6)),
+                Data::String(_) => Data::String(random_bytes(6)),
                 Data::Integer(_) => Data::Integer(random::<i64>()),
                 Data::Bytes(_) => Data::Bytes(random_bytes(6)),
                 _ => unreachable!(),
@@ -523,7 +515,7 @@ mod tests {
         assert_eq!(rpush_response, len);
 
         let data2 = VecDeque::from([
-            Data::String(random_string(6)),
+            Data::String(random_bytes(6)),
             Data::Integer(random::<i64>()),
             Data::Bytes(Bytes::from(random_bytes(6))),
         ]);
@@ -838,8 +830,7 @@ mod tests {
         // The server should have skipped 'key_empty' and popped from 'key_populated'
         // verify the key name returned by the server matches `key_populated`
         let returned_key = match &result_array[0] {
-            Data::String(s) => s.clone(),
-            Data::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
+            Data::String(data) | Data::Bytes(data) => data.clone(),
             _ => panic!("Expected key name to be a string or bytes"),
         };
 

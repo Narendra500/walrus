@@ -23,7 +23,7 @@ pub enum Data {
     Bytes(Bytes),
     /// VecDeque allowing O(1) push and pop operations at both ends of the list.
     Array(VecDeque<Data>),
-    String(String),
+    String(Bytes),
     Integer(i64),
     Double(f64),
 }
