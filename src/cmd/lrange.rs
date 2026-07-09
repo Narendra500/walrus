@@ -4,7 +4,7 @@ use crate::{
     Connection,
     db::{Data, Db},
     errors::WalrusError,
-    frame::Frame,
+    frame::{Frame, FrameRef},
     parse::Parse,
 };
 
@@ -54,10 +54,10 @@ impl LRange {
     /// Execute the `LRange` command, the data from the section of the list requested is cloned
     /// and sent to the client by writing the response to the `conn`.
     pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
-        let maybe_list = db.get(&self.list_key);
+        let key = self.list_key;
 
-        if let Some(list) = maybe_list {
-            match list {
+        if let Some(entry) = db.get_ref(&key) {
+            match &entry.data {
                 Data::Array(list) => {
                     let len = list.len() as i64;
                     // Convert negative start index to positive. Say len is 5, then -1 bceomes 4
@@ -86,34 +86,28 @@ impl LRange {
                     // The portion of the list requested is empty.
                     if start_index > end_index || start_index >= len {
                         conn.write_frame(&Frame::Array(vec![])).await?;
-                        return Ok(());
+                    } else {
+                        // Wrap Vec<Frame> into Frame::Array.
+                        let frame = FrameRef::Array(
+                            // Collect the data items in a Vec<Frame>.
+                            // NOTE: If Data contains an array then it will be flattened due to
+                            // Frame::from()'s current implementation.
+                            list.range(start_index as usize..=end_index as usize)
+                                .map(|data| FrameRef::from(data))
+                                .collect::<Vec<FrameRef>>(),
+                        );
+                        conn.write_frame_ref(&frame).await?;
                     }
-
-                    // Wrap Vec<Frame> into Frame::Array.
-                    let frame = Frame::Array(
-                        // Collect the data items in a Vec<Frame>.
-                        // NOTE: If Data contains an array then it will be flattened due to
-                        // Frame::from()'s current implementation.
-                        list.range(start_index as usize..=end_index as usize)
-                            .cloned()
-                            .map(|data| Frame::from(data))
-                            .collect::<Vec<Frame>>(),
-                    );
-
-                    conn.write_frame(&frame).await?;
                 }
                 // Data associated with the given key is not a list.
                 _ => {
-                    conn.write_frame(&Frame::Error(
-                        "WRONGTYPE Operation against a key holding the wrong kind of value".into(),
-                    ))
-                    .await?;
+                    conn.write_frame(&Frame::Error(WalrusError::WrongType.into()))
+                        .await?
                 }
             }
-        }
-        // No list with given key.
-        else {
-            conn.write_frame(&Frame::Array(vec![])).await?;
+        } else {
+            // No data with given key.
+            conn.write_frame(&Frame::Null).await?;
         }
 
         Ok(())

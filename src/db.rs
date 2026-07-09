@@ -1,6 +1,9 @@
 use ahash;
 use bytes::Bytes;
-use dashmap::DashMap;
+use dashmap::{
+    DashMap,
+    mapref::one::{Ref, RefMut},
+};
 use futures::{StreamExt, stream::FuturesUnordered};
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -29,9 +32,9 @@ pub enum Data {
 }
 
 /// Single entry in key-value store.
-struct Entry {
-    data: Data,
-    expires_at: Option<Instant>,
+pub(crate) struct Entry {
+    pub(crate) data: Data,
+    pub(crate) expires_at: Option<Instant>,
 }
 
 /// State of the Db.
@@ -121,6 +124,14 @@ impl Db {
             .entries
             .get(key)
             .map(|entry| entry.data.clone())
+    }
+
+    pub(crate) fn get_mut(&self, key: &Bytes) -> Option<RefMut<'_, Bytes, Entry>> {
+        self.shared.state.entries.get_mut(key)
+    }
+
+    pub(crate) fn get_ref(&self, key: &Bytes) -> Option<Ref<'_, Bytes, Entry>> {
+        self.shared.state.entries.get(key)
     }
 
     /// Insert key value pair into db.

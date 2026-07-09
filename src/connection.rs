@@ -5,7 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::errors::WalrusError;
-use crate::frame::Frame;
+use crate::frame::{Frame, FrameRef};
 
 /// Send and receive `Frame` values from a remote peer.
 ///
@@ -138,6 +138,26 @@ impl Connection {
         Ok(())
     }
 
+    pub async fn write_frame_ref<'a>(&mut self, frame: &FrameRef<'a>) -> io::Result<()> {
+        match frame {
+            FrameRef::Array(val) => {
+                self.write_buffer.put_u8(b'*');
+                self.write_decimal(val.len() as i64).await?;
+
+                let iter = val.iter();
+
+                for frame in iter {
+                    self.write_val_ref(frame).await?;
+                }
+            }
+            // frame is a literal. Encode using helper function for writing frame literals to the
+            // stream.
+            _ => self.write_val_ref(frame).await?,
+        }
+
+        Ok(())
+    }
+
     /// Write a frame literal (non array) to the stream.
     pub async fn write_val(&mut self, frame: &Frame) -> io::Result<()> {
         match frame {
@@ -170,6 +190,34 @@ impl Connection {
                 self.write_buffer.put_slice(b"\r\n");
             }
             Frame::Array(_) => unreachable!(),
+        }
+        Ok(())
+    }
+
+    /// Write a frameref literal (non array) to the stream.
+    pub async fn write_val_ref<'a>(&mut self, frame: &FrameRef<'a>) -> io::Result<()> {
+        match frame {
+            &FrameRef::Simple(message) => {
+                self.write_buffer.put_u8(b'+');
+                self.write_buffer.put_slice(&message);
+                self.write_buffer.put_slice(b"\r\n");
+            }
+            &FrameRef::Integer(val) => {
+                self.write_buffer.put_u8(b':');
+                self.write_decimal(val).await?;
+            }
+            &FrameRef::Double(val) => {
+                self.write_double(val).await?;
+            }
+            &FrameRef::Bulk(message) => {
+                let message_len = message.len();
+
+                self.write_buffer.put_u8(b'$');
+                self.write_decimal(message_len as i64).await?;
+                self.write_buffer.put_slice(message);
+                self.write_buffer.put_slice(b"\r\n");
+            }
+            &FrameRef::Array(_) => unreachable!(),
         }
         Ok(())
     }

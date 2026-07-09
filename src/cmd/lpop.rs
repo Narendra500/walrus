@@ -18,6 +18,12 @@ pub struct LPop {
     count: i64,
 }
 
+enum LPopErrors {
+    ValueOutOfRange,
+    WrongType,
+    NotFound,
+}
+
 impl LPop {
     /// Return a new LPop command.
     pub fn new(list_key: Bytes, count: Option<i64>) -> Self {
@@ -50,50 +56,68 @@ impl LPop {
     /// Writes Empty array if `count` is zero.
     /// Returns `Value out of range` error if `count` is negative.
     pub(crate) async fn execute(&self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
-        let maybe_list = db.get(&self.list_key);
-        if let Some(list) = maybe_list {
-            match list {
-                Data::Array(mut list) => {
-                    let len = list.len() as i64;
-                    let mut count = self.count;
-                    // If count is negative, then return an error.
-                    if count < 0 {
-                        conn.write_frame(&Frame::Error(String::from("ERR value is out of range")))
-                            .await?;
-                        return Ok(());
-                    }
-                    // If count is zero, then return an empty array.
-                    if count == 0 {
-                        conn.write_frame(&Frame::Array(vec![])).await?;
-                        return Ok(());
-                    }
-                    // Clamp count to the length of the list.
-                    count = count.min(len);
+        let key = self.list_key.clone();
+        let result = {
+            if let Some(mut entry) = db.get_mut(&key) {
+                match &mut entry.data {
+                    Data::Array(list) => {
+                        let res: Result<Frame, LPopErrors>;
+                        let len = list.len() as i64;
+                        let mut count = self.count;
+                        // Clamp count to the length of the list.
+                        count = count.min(len);
 
-                    // Return single element as a single frame instead of an array.
-                    if count == 1 {
-                        // unwrap is safe as we clamp count to the length of the list.
-                        let response = Frame::from(list.pop_front().unwrap());
-                        conn.write_frame(&response).await?;
-                    } else {
-                        // Prepare the response array.
-                        let response = Frame::Array(
-                            list.drain(0..count as usize)
-                                .map(|data| Frame::from(data))
-                                .collect::<Vec<Frame>>(),
-                        );
-                        conn.write_frame(&response).await?;
+                        // If count is negative, then return an error.
+                        if count < 0 {
+                            res = Err(LPopErrors::ValueOutOfRange);
+                        } else if count == 0 {
+                            // If count is zero, then return an empty array.
+                            res = Ok(Frame::Array(vec![]));
+                        } else if count == 1 {
+                            // unwrap is safe as we clamp count to the length of the list.
+                            let response = Frame::from(list.pop_front().unwrap());
+                            // Return single element as a single frame instead of an array.
+                            res = Ok(response);
+                        } else {
+                            // Prepare the response array.
+                            let response = Frame::Array(
+                                list.drain(0..count as usize)
+                                    .map(|data| Frame::from(data))
+                                    .collect::<Vec<Frame>>(),
+                            );
+                            res = Ok(response);
+                        }
+                        res
                     }
-                }
-                // Data associated with the given key is not a list.
-                _ => {
-                    conn.write_frame(&Frame::Null).await?;
+                    // Data associated with the given key is not a list.
+                    _ => Err(LPopErrors::WrongType),
                 }
             }
-        }
-        // No Data associated with the given key.
-        else {
-            conn.write_frame(&Frame::Null).await?;
+            // No Data associated with the given key.
+            else {
+                Err(LPopErrors::NotFound)
+            }
+        }; // Dashmap lock dropped here.
+
+        match result {
+            Ok(frame) => {
+                conn.write_frame(&frame).await?;
+            }
+            Err(err) => match err {
+                LPopErrors::ValueOutOfRange => {
+                    conn.write_frame(&Frame::Error(
+                        "value is out of range, must be positive".into(),
+                    ))
+                    .await?;
+                }
+                LPopErrors::NotFound => {
+                    conn.write_frame(&Frame::Null).await?;
+                }
+                LPopErrors::WrongType => {
+                    conn.write_frame(&Frame::Error(WalrusError::WrongType.into()))
+                        .await?;
+                }
+            },
         }
 
         Ok(())

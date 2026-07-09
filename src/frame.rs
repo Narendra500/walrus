@@ -34,12 +34,71 @@ pub enum Frame {
     Array(Vec<Frame>),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum FrameRef<'a> {
+    Simple(&'a Bytes),
+    Integer(i64),
+    Double(f64),
+    Bulk(&'a Bytes),
+    Array(Vec<FrameRef<'a>>),
+}
+
 /// Error::Incomplete; Not enough data is available to parse a message
 /// Error::Other; Invalid message encoding
 #[derive(Debug)]
 pub enum Error {
     Incomplete,
     Other(WalrusError),
+}
+
+impl<'a> FrameRef<'a> {
+    /// Push FrameRef into an array frameref.
+    /// self needs to be an array frameref.
+    /// Takes Simple, Bulk, Integer and Double framerefs.
+    pub(crate) fn push(&mut self, frame: FrameRef<'a>) {
+        match frame {
+            FrameRef::Simple(string) => self.push_string(string),
+            FrameRef::Bulk(bytes) => self.push_bulk(bytes),
+            FrameRef::Integer(val) => self.push_int(val),
+            FrameRef::Double(val) => self.push_double(val),
+            // Nested array's are not supported.
+            _ => unreachable!(),
+        }
+    }
+
+    /// Push FrameRef::Simple(String) into an array frameref.
+    /// Will `panic` if called by non array frameref.
+    pub(crate) fn push_string(&mut self, string: &'a Bytes) {
+        match self {
+            FrameRef::Array(frame) => frame.push(FrameRef::Simple(string)),
+            _ => panic!("not an array frame"),
+        }
+    }
+
+    /// Push Frame::Bulk(Bytes) into an array frame.
+    /// Will `panic` if called by non array frame.
+    pub(crate) fn push_bulk(&mut self, bytes: &'a Bytes) {
+        match self {
+            FrameRef::Array(frame) => frame.push(FrameRef::Bulk(bytes)),
+            _ => panic!("not an array frame"),
+        }
+    }
+
+    pub(crate) fn push_double(&mut self, val: f64) {
+        match self {
+            FrameRef::Array(frame) => frame.push(FrameRef::Double(val)),
+            _ => panic!("not an array frame"),
+        }
+    }
+
+    /// Push Frame::Integer(u64) into an array frame.
+    /// Will `panic` if called by non array frame.
+    pub(crate) fn push_int(&mut self, val: i64) {
+        match self {
+            FrameRef::Array(frame) => frame.push(FrameRef::Integer(val)),
+            _ => panic!("not an array frame"),
+        }
+    }
 }
 
 impl Frame {
@@ -408,6 +467,44 @@ impl From<Data> for Frame {
                 let mut frame = Frame::array();
                 for item in arr.iter() {
                     frame.push(Frame::from(item.clone()));
+                }
+                frame
+            }
+        }
+    }
+}
+
+impl From<&Data> for Frame {
+    fn from(src: &Data) -> Frame {
+        match src {
+            Data::Integer(val) => Frame::Integer(val.clone()),
+            Data::Bytes(val) => Frame::Bulk(val.clone()),
+            Data::String(val) => Frame::Simple(val.clone()),
+            Data::Double(val) => Frame::Double(val.clone()),
+            // NOTE: This will flatten nested array's.
+            Data::Array(arr) => {
+                let mut frame = Frame::array();
+                for item in arr.iter() {
+                    frame.push(Frame::from(item));
+                }
+                frame
+            }
+        }
+    }
+}
+
+impl<'a> From<&'a Data> for FrameRef<'a> {
+    fn from(src: &'a Data) -> FrameRef<'a> {
+        match src {
+            Data::Integer(val) => FrameRef::Integer(*val),
+            Data::Bytes(val) => FrameRef::Bulk(val),
+            Data::String(val) => FrameRef::Simple(val),
+            Data::Double(val) => FrameRef::Double(*val),
+            // NOTE: This will flatten nested array's.
+            Data::Array(arr) => {
+                let mut frame = FrameRef::Array(vec![]);
+                for item in arr.iter() {
+                    frame.push(FrameRef::from(item));
                 }
                 frame
             }

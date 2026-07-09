@@ -5,7 +5,7 @@ use bytes::Bytes;
 use crate::{
     Connection,
     db::{Data, Db},
-    errors::WalrusError,
+    errors::{self, WalrusError},
     frame::Frame,
     parse::Parse,
 };
@@ -45,55 +45,48 @@ impl LPush {
     /// Returns the number of data elements in the array after insertion if successful or
     /// `WRONGTYPE` error if data item with `list_key` is not a list.
     pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
-        // Get the db data corresponding to the `list_key`
-        let maybe_list = db.get(&self.list_key);
-        // If data with `list_key` exists in db.
-        if let Some(list) = maybe_list {
-            match list {
-                Data::Array(mut list) => {
-                    // Take ownership of the data in self.
-                    let mut data = self.data;
-                    // Reverse the data in self, to maintain redis behaviour (where the last item
-                    // in the input becomes the new first item of the list).
-                    data.make_contiguous().reverse();
-                    // Append the list data in db to data. Effectively pushing the data to the start.
-                    data.append(&mut list);
-                    // Point the list in db to the new data.
-                    list = data;
-                    let list_len = list.len();
-                    let frame = Frame::Integer(list_len as i64);
-                    conn.write_frame(&frame).await.unwrap();
+        let key = self.list_key.clone();
 
-                    // Notify any clients waiting on the key.
-                    db.notify_blocked(&self.list_key);
+        // Use block to strictly scope the DashMap lock.
+        // The return either Ok(len) or Err(()), this determines the network response.
+        let result = {
+            if let Some(mut entry) = db.get_mut(&key) {
+                // Key exists.
+                match &mut entry.data {
+                    Data::Array(list) => {
+                        let new_data = self.data;
+                        for data in new_data {
+                            list.push_front(data);
+                        }
+                        Ok(list.len())
+                    }
+                    // Not an array.
+                    _ => Err(()),
                 }
-                // The data corresponding to `list_key` is not an array.
-                _ => {
-                    conn.write_frame(&Frame::Error(
-                        "WRONGTYPE Operation against a key holding the wrong kind of value".into(),
-                    ))
-                    .await?;
-                }
+            } else {
+                // Key doesn't exist, create it.
+                let mut new_data = self.data;
+                new_data.make_contiguous().reverse();
+                let list_len = new_data.len();
+
+                db.set(&key, Data::Array(new_data), None);
+
+                Ok(list_len)
             }
-        }
-        // No data with corresponding to `list_key` key in db. so create one.
-        else {
-            // Extract key out of self.
-            let key = self.list_key;
-            // Extract data out of self. This leaves self empty.
-            let mut data = self.data;
-            // Reverse the data in self, to maintain redis behaviour (where the last item
-            // in the input becomes the new first item of the list).
-            data.make_contiguous().reverse();
-            // Get the length of the data before it is moved into the db.
-            let list_len = data.len();
-            db.set(&key, Data::Array(data), None);
-            // Return the length of array.
-            let frame = Frame::Integer(list_len as i64);
-            conn.write_frame(&frame).await.unwrap();
+        }; // Dashmap lock is dropped here.
 
-            // Notify any clients waiting on the key.
-            db.notify_blocked(&key);
+        match result {
+            Ok(len) => {
+                let frame = Frame::Integer(len as i64);
+                conn.write_frame(&frame).await?;
+                db.notify_blocked(&key);
+            }
+            Err(_) => {
+                conn.write_frame(&Frame::Error(
+                    errors::WalrusError::WrongType.get_msg().into(),
+                ))
+                .await?;
+            }
         }
 
         Ok(())

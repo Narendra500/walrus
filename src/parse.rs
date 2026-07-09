@@ -53,7 +53,7 @@ impl Parse {
         self.frames.peek().cloned().ok_or(ParseError::EndOfStream)
     }
 
-    /// Try to parse any number of strings and a timeout.
+    /// Try to parse any number of bytes and a timeout.
     /// Returns (Vec<Bytes>, f64) on success.
     pub(crate) fn next_bytes_with_timeout(&mut self) -> Result<(Vec<Bytes>, f64), ParseError> {
         let mut result = Vec::new();
