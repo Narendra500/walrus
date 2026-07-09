@@ -37,7 +37,12 @@ const MAX_CONNECTIONS: usize = 10000;
 ///
 /// Accepts connections from the listener given as argument.
 /// A task is spawned is to handle each connection.
-pub async fn run(listener: TcpListener, port: i16) {
+pub async fn run(
+    listener: TcpListener,
+    port: i16,
+    read_buffer_size: Option<u16>,
+    write_buffer_size: Option<u16>,
+) {
     // Create a listener state instance.
     let mut server = Listener {
         db_holder: DbDropGuard::new(),
@@ -46,11 +51,19 @@ pub async fn run(listener: TcpListener, port: i16) {
     };
 
     // Run the server, accepting inbound connections.
-    server.run(port).await.unwrap();
+    server
+        .run(port, read_buffer_size, write_buffer_size)
+        .await
+        .unwrap();
 }
 
 impl Listener {
-    async fn run(&mut self, port: i16) -> Result<(), WalrusError> {
+    async fn run(
+        &mut self,
+        port: i16,
+        read_buffer_size: Option<u16>,
+        write_buffer_size: Option<u16>,
+    ) -> Result<(), WalrusError> {
         println!("Accepting inbound connections at port {}", port);
         loop {
             // Get a permit to accept the connection ensuring number of active connections
@@ -72,7 +85,7 @@ impl Listener {
             // Per connection handler.
             let mut handler = Handler {
                 db: self.db_holder.get_db(),
-                connection: Connection::new(socket, Some(64)),
+                connection: Connection::new(socket, read_buffer_size, write_buffer_size),
             };
 
             // Spawn a new task to process the connection.

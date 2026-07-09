@@ -1,4 +1,5 @@
 .env
 /target
 perf*
+massif*
 flamegraph.svg

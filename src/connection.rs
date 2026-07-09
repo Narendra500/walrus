@@ -1,7 +1,7 @@
 use std::io::{self, Cursor};
 
-use bytes::BytesMut;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
+use bytes::{BufMut, BytesMut};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::errors::WalrusError;
@@ -16,27 +16,36 @@ use crate::frame::Frame;
 ///
 /// To send frames, the frame is first encoded into the write buffer.
 /// The contents of the write buffer are then written to the socket.
+#[derive(Debug)]
 pub struct Connection {
-    stream: BufWriter<TcpStream>,
-    // The buffer for reading frames.
+    stream: TcpStream,
+    // Buffer for reading frames.
     buffer: BytesMut,
+    // Buffer for writing frames.
+    write_buffer: BytesMut,
 }
 
 impl Connection {
-    /// create a new `Connection`, wraps socket in `BufWriter` and initializes a read buffer of
-    /// type `BytesMut` with default capacity of 16KB.
+    /// create a new `Connection` to read and write to and from `TcpStream` using read and write
+    /// buffers. The default initial size for the buffers is 16KB.
+    /// There is no hard limit on how large the buffers can get.
     ///
     /// example:
     ///
     /// let socket = TcpStream::connect("127.0.0.1:6379").await?;
     ///
-    /// let conn = Connection::new(socket, Some(32));
-    /// // intializes a new `Connection` with 32KB read buffer.
-    pub fn new(socket: TcpStream, capacity: Option<usize>) -> Connection {
+    /// let conn = Connection::new(socket, Some(32), Some(32));
+    /// // intializes a new `Connection` with 32KB initial read and write buffers.
+    pub fn new(
+        socket: TcpStream,
+        read_buffer_size: Option<u16>,
+        write_buffer_size: Option<u16>,
+    ) -> Connection {
         Connection {
-            stream: BufWriter::new(socket),
-            // defaults to 16KB read buffer.
-            buffer: BytesMut::with_capacity(capacity.unwrap_or(16) * 1024),
+            stream: socket,
+            // defaults to 16KB buffers.
+            buffer: BytesMut::with_capacity(read_buffer_size.unwrap_or(16) as usize * 1024),
+            write_buffer: BytesMut::with_capacity(write_buffer_size.unwrap_or(16) as usize * 1024),
         }
     }
 
@@ -55,7 +64,10 @@ impl Connection {
 
             // Not enough buffered data to parse a full frame.
             // flush the current contents of the buffer to stream.
-            self.stream.flush().await?;
+            if !self.write_buffer.is_empty() {
+                self.stream.write_all(&self.write_buffer).await?;
+                self.write_buffer.clear();
+            }
 
             // Wait for client to send more data
             // If number of bytes read into buffer is 0, then the stream has ended.
@@ -109,7 +121,7 @@ impl Connection {
     pub async fn write_frame(&mut self, frame: &Frame) -> io::Result<()> {
         match frame {
             Frame::Array(val) => {
-                self.stream.write_u8(b'*').await?;
+                self.write_buffer.put_u8(b'*');
                 self.write_decimal(val.len() as i64).await?;
 
                 let iter = val.iter();
@@ -130,32 +142,32 @@ impl Connection {
     pub async fn write_val(&mut self, frame: &Frame) -> io::Result<()> {
         match frame {
             Frame::Simple(message) => {
-                self.stream.write_u8(b'+').await?;
-                self.stream.write_all(&message).await?;
-                self.stream.write_all(b"\r\n").await?;
+                self.write_buffer.put_u8(b'+');
+                self.write_buffer.put_slice(&message);
+                self.write_buffer.put_slice(b"\r\n");
             }
             Frame::Error(err) => {
-                self.stream.write_u8(b'-').await?;
-                self.stream.write_all(err.as_bytes()).await?;
-                self.stream.write_all(b"\r\n").await?;
+                self.write_buffer.put_u8(b'-');
+                self.write_buffer.put_slice(err.as_bytes());
+                self.write_buffer.put_slice(b"\r\n");
             }
             Frame::Integer(val) => {
-                self.stream.write_u8(b':').await?;
+                self.write_buffer.put_u8(b':');
                 self.write_decimal(*val).await?;
             }
             Frame::Double(val) => {
                 self.write_double(*val).await?;
             }
             Frame::Null => {
-                self.stream.write_all(b"$-1\r\n").await?;
+                self.write_buffer.put_slice(b"$-1\r\n");
             }
             Frame::Bulk(message) => {
                 let message_len = message.len();
 
-                self.stream.write_u8(b'$').await?;
+                self.write_buffer.put_u8(b'$');
                 self.write_decimal(message_len as i64).await?;
-                self.stream.write_all(message).await?;
-                self.stream.write_all(b"\r\n").await?;
+                self.write_buffer.put_slice(message);
+                self.write_buffer.put_slice(b"\r\n");
             }
             Frame::Array(_) => unreachable!(),
         }
@@ -168,26 +180,26 @@ impl Connection {
         // RESP3 Special cases: +inf, -inf, nan
         if val.is_infinite() {
             if val.is_sign_positive() {
-                self.stream.write_all(b",inf\r\n").await?;
+                self.write_buffer.put_slice(b",inf\r\n");
             } else {
-                self.stream.write_all(b"-inf\r\n").await?;
+                self.write_buffer.put_slice(b"-inf\r\n");
             }
             return Ok(());
         } else if val.is_nan() {
-            self.stream.write_all(b",nan\r\n").await?;
+            self.write_buffer.put_slice(b",nan\r\n");
             return Ok(());
         }
 
         // Identifier for double.
-        self.stream.write_u8(b',').await?;
+        self.write_buffer.put_u8(b',');
 
         // Use ryu crate for better performance than format!() or to_string() method.
         // Uses a stack allocated buffer to avoid heap allocations.
         let mut buffer = ryu::Buffer::new();
         let printed: &str = buffer.format(val);
 
-        self.stream.write_all(printed.as_bytes()).await?;
-        self.stream.write_all(b"\r\n").await?;
+        self.write_buffer.put_slice(printed.as_bytes());
+        self.write_buffer.put_slice(b"\r\n");
 
         Ok(())
     }
@@ -200,8 +212,8 @@ impl Connection {
         // returns a reference to string representation of the number in the buffer.
         let printed = buf.format(val);
 
-        self.stream.write_all(printed.as_bytes()).await?;
-        self.stream.write_all(b"\r\n").await?;
+        self.write_buffer.put_slice(printed.as_bytes());
+        self.write_buffer.put_slice(b"\r\n");
 
         Ok(())
     }
