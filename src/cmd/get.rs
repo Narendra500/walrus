@@ -39,22 +39,15 @@ impl Get {
         match maybe_data {
             Some(data) => match data {
                 Data::Array(_) => {
-                    conn.write_frame(&Frame::Error(WalrusError::WrongType.get_msg().into()))
-                        .await?;
+                    conn.write_error_frame(WalrusError::WrongType.get_msg());
                     return Err(WalrusError::WrongType);
                 }
-                Data::Bytes(bytes) => conn.write_frame(&Frame::Bulk(bytes)).await?,
-                Data::Integer(integer) => {
-                    conn.write_frame(&Frame::Bulk(int_to_bytes(integer)))
-                        .await?
-                }
-                Data::Double(double) => {
-                    conn.write_frame(&Frame::Bulk(double_to_bytes(double)))
-                        .await?
-                }
-                Data::String(string) => conn.write_frame(&Frame::Simple(string)).await?,
+                Data::Bytes(bytes) => conn.write_data(&Data::Bytes(bytes)),
+                Data::Integer(integer) => conn.write_data(&Data::Bytes(int_to_bytes(integer))),
+                Data::Double(double) => conn.write_data(&Data::Bytes(double_to_bytes(double))),
+                Data::String(string) => conn.write_data(&Data::String(string)),
             },
-            None => conn.write_frame(&Frame::Null).await?,
+            None => conn.write_null_frame(),
         };
 
         Ok(())

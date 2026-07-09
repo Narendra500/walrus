@@ -6,7 +6,7 @@ use tokio::{sync::Notify, time::sleep};
 
 use crate::{
     Connection,
-    db::{Db, wait_on_any},
+    db::{Data, Db, wait_on_any},
     errors::WalrusError,
     frame::Frame,
 };
@@ -69,16 +69,14 @@ impl BLPop {
             for key in &self.keys {
                 match db.pop_front(key) {
                     Ok(Some(data)) => {
-                        conn.write_frame(&Frame::Array(vec![
-                            Frame::Bulk(Bytes::from(key.clone())),
-                            Frame::from(data),
-                        ]))
-                        .await?;
+                        conn.write_data_array(
+                            vec![&Data::Bytes(key.clone()), &data].into_iter(),
+                            2 as usize,
+                        );
                         return Ok(());
                     }
                     Err(err) => {
-                        conn.write_frame(&Frame::Error(err.get_msg().into()))
-                            .await?;
+                        conn.write_error_frame(err.get_msg());
                         return Err(err);
                     }
                     _ => {}
@@ -96,7 +94,7 @@ impl BLPop {
             tokio::select! {
                 // The timer finished.
                 _ = &mut timer, if self.timeout > 0.0 => {
-                    conn.write_frame(&Frame::Null).await?;
+                    conn.write_null_frame();
                     return Ok(());
                 }
                 // A key was notified.

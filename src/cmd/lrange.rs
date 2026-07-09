@@ -4,7 +4,7 @@ use crate::{
     Connection,
     db::{Data, Db},
     errors::WalrusError,
-    frame::{Frame, FrameRef},
+    frame::Frame,
     parse::Parse,
 };
 
@@ -85,29 +85,20 @@ impl LRange {
 
                     // The portion of the list requested is empty.
                     if start_index > end_index || start_index >= len {
-                        conn.write_frame(&Frame::Array(vec![])).await?;
+                        conn.write_data_array(vec![].into_iter(), 0);
                     } else {
-                        // Wrap Vec<Frame> into Frame::Array.
-                        let frame = FrameRef::Array(
-                            // Collect the data items in a Vec<Frame>.
-                            // NOTE: If Data contains an array then it will be flattened due to
-                            // Frame::from()'s current implementation.
-                            list.range(start_index as usize..=end_index as usize)
-                                .map(|data| FrameRef::from(data))
-                                .collect::<Vec<FrameRef>>(),
+                        conn.write_data_array(
+                            list.range(start_index as usize..=end_index as usize),
+                            (end_index - start_index + 1) as usize,
                         );
-                        conn.write_frame_ref(&frame).await?;
                     }
                 }
                 // Data associated with the given key is not a list.
-                _ => {
-                    conn.write_frame(&Frame::Error(WalrusError::WrongType.into()))
-                        .await?
-                }
+                _ => conn.write_error_frame(WalrusError::WrongType.get_msg()),
             }
         } else {
             // No data with given key.
-            conn.write_frame(&Frame::Null).await?;
+            conn.write_null_frame();
         }
 
         Ok(())

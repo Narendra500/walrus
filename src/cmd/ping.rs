@@ -1,5 +1,6 @@
 use crate::{
     connection::Connection,
+    db::Data,
     errors::WalrusError,
     frame::Frame,
     parse::{Parse, ParseError},
@@ -39,12 +40,12 @@ impl Ping {
     /// Send back `Ping` message to the client.
     pub(crate) async fn execute(self, conn: &mut Connection) -> Result<(), WalrusError> {
         let response = match self.msg {
-            None => Frame::Bulk(Bytes::from("PONG")),
-            Some(msg) => Frame::Bulk(msg),
+            None => Data::Bytes(Bytes::from("PONG")),
+            Some(msg) => Data::Bytes(msg),
         };
 
         // Send message to client.
-        conn.write_frame(&response).await?;
+        conn.write_data(&response);
 
         Ok(())
     }

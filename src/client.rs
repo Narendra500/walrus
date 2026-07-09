@@ -49,7 +49,7 @@ impl Client {
     /// Returns the message provided if any given the server is running.
     pub async fn ping(&mut self, msg: Option<Bytes>) -> Result<Bytes, WalrusError> {
         let frame = Ping::new(msg).into_frame();
-        self.connection.write_frame(&frame).await?;
+        self.connection.write_frame(&frame)?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
@@ -66,7 +66,7 @@ impl Client {
     /// `Get` the `value` associated with the `key`
     pub async fn get(&mut self, key: Bytes) -> Result<Option<Bytes>, WalrusError> {
         let frame = Get::new(key).into_frame();
-        self.connection.write_frame(&frame).await?;
+        self.connection.write_frame(&frame)?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
@@ -91,7 +91,7 @@ impl Client {
         expire: Option<Duration>,
     ) -> Result<Bytes, WalrusError> {
         let frame = Set::new(key, value, expire).into_frame();
-        self.connection.write_frame(&frame).await?;
+        self.connection.write_frame(&frame)?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
@@ -113,7 +113,7 @@ impl Client {
         data: VecDeque<Data>,
     ) -> Result<i64, WalrusError> {
         let frame = RPush::new(list_key, data).into_frame();
-        self.connection.write_frame(&frame).await?;
+        self.connection.write_frame(&frame)?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
@@ -137,7 +137,7 @@ impl Client {
         data: VecDeque<Data>,
     ) -> Result<i64, WalrusError> {
         let frame = LPush::new(list_key, data).into_frame();
-        self.connection.write_frame(&frame).await?;
+        self.connection.write_frame(&frame)?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
@@ -162,7 +162,7 @@ impl Client {
         count: Option<i64>,
     ) -> Result<Option<Vec<Data>>, WalrusError> {
         let frame = LPop::new(list_key, count).into_frame();
-        self.connection.write_frame(&frame).await?;
+        self.connection.write_frame(&frame)?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
@@ -197,7 +197,7 @@ impl Client {
         timeout: f64,
     ) -> Result<Option<Vec<Data>>, WalrusError> {
         let frame = BLPop::new(keys, timeout).into_frame();
-        self.connection.write_frame(&frame).await?;
+        self.connection.write_frame(&frame)?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
@@ -215,7 +215,7 @@ impl Client {
     /// Returns `0` if no list with `list_key` is found.
     pub async fn llen(&mut self, list_key: Bytes) -> Result<i64, WalrusError> {
         let frame = LLen::new(list_key).into_frame();
-        self.connection.write_frame(&frame).await?;
+        self.connection.write_frame(&frame)?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
@@ -244,7 +244,7 @@ impl Client {
         end_index: i64,
     ) -> Result<Vec<Data>, WalrusError> {
         let frame = LRange::new(list_key, start_index, end_index).into_frame();
-        self.connection.write_frame(&frame).await?;
+        self.connection.write_frame(&frame)?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {
@@ -265,7 +265,7 @@ impl Client {
     /// presented is string.
     pub async fn wtype(&mut self, key: Bytes) -> Result<Bytes, WalrusError> {
         let frame = Type::new(key).into_frame();
-        self.connection.write_frame(&frame).await?;
+        self.connection.write_frame(&frame)?;
 
         if let Some(response) = self.connection.read_frame().await? {
             match response {

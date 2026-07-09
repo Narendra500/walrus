@@ -2,7 +2,7 @@ use bytes::Bytes;
 
 use crate::{
     Connection,
-    db::{self, Db},
+    db::{self, Data, Db},
     errors::WalrusError,
     frame::Frame,
     parse::{Parse, ParseError},
@@ -69,8 +69,8 @@ impl Set {
 
         db.set(&self.key, value, self.expire);
 
-        let response = Frame::Bulk(Bytes::from("OK"));
-        conn.write_frame(&response).await?;
+        let response = Data::Bytes(Bytes::from("OK"));
+        conn.write_data(&response);
 
         Ok(())
     }

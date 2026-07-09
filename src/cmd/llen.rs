@@ -42,21 +42,18 @@ impl LLen {
         if let Some(list) = maybe_list {
             match list {
                 Data::Array(list) => {
-                    let response = Frame::Integer(list.len() as i64);
-                    conn.write_frame(&response).await?;
+                    let response = Data::Integer(list.len() as i64);
+                    conn.write_data(&response);
                 }
                 // Data associated with the given key is not a list.
                 _ => {
-                    conn.write_frame(&Frame::Error(
-                        "WRONGTYPE Operation against a key holding the wrong kind of value".into(),
-                    ))
-                    .await?;
+                    conn.write_error_frame(WalrusError::WrongType.get_msg());
                 }
             }
         }
         // No list with given key.
         else {
-            conn.write_frame(&Frame::Integer(0)).await?;
+            conn.write_data(&Data::Integer(0));
         }
 
         Ok(())

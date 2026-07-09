@@ -39,21 +39,21 @@ impl Type {
     /// Although Integer and Double are stored as i64 and f64 internally, the type
     /// presented to the client is string.
     pub(crate) async fn execute(&self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
-        let string_frame = Frame::Bulk(Bytes::from("string"));
-        let none_frame = Frame::Bulk(Bytes::from("none"));
-        let list_frame = Frame::Bulk(Bytes::from("list"));
+        let string = Data::Bytes(Bytes::from("string"));
+        let none = Data::Bytes(Bytes::from("none"));
+        let list = Data::Bytes(Bytes::from("list"));
 
         let maybe_data = db.get(&self.key);
         if let Some(data) = maybe_data {
             match data {
-                Data::Bytes(_) => conn.write_frame(&string_frame).await?,
-                Data::Integer(_) => conn.write_frame(&string_frame).await?,
-                Data::Double(_) => conn.write_frame(&string_frame).await?,
-                Data::String(_) => conn.write_frame(&string_frame).await?,
-                Data::Array(_) => conn.write_frame(&list_frame).await?,
+                Data::Bytes(_) => conn.write_data(&string),
+                Data::Integer(_) => conn.write_data(&string),
+                Data::Double(_) => conn.write_data(&string),
+                Data::String(_) => conn.write_data(&string),
+                Data::Array(_) => conn.write_data(&list),
             }
         } else {
-            conn.write_frame(&none_frame).await?;
+            conn.write_data(&none);
         }
 
         Ok(())

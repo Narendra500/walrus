@@ -1,11 +1,12 @@
-use std::io::{self, Cursor};
+use std::io::Cursor;
 
 use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+use crate::db::Data;
 use crate::errors::WalrusError;
-use crate::frame::{Frame, FrameRef};
+use crate::frame::Frame;
 
 /// Send and receive `Frame` values from a remote peer.
 ///
@@ -115,115 +116,47 @@ impl Connection {
         }
     }
 
-    /// Write a single `Frame` to the stream.
-    ///
-    /// Nested array's not supported as of yet.
-    pub async fn write_frame(&mut self, frame: &Frame) -> io::Result<()> {
-        match frame {
-            Frame::Array(val) => {
-                self.write_buffer.put_u8(b'*');
-                self.write_decimal(val.len() as i64).await?;
-
-                let iter = val.iter();
-
-                for frame in iter {
-                    self.write_val(frame).await?;
-                }
-            }
-            // frame is a literal. Encode using helper function for writing frame literals to the
-            // stream.
-            _ => self.write_val(frame).await?,
+    pub fn write_data_array<'a>(&mut self, items: impl Iterator<Item = &'a Data>, len: usize) {
+        self.write_buffer.put_u8(b'*');
+        self.write_decimal(len as i64);
+        for data in items {
+            self.write_data(data);
         }
-
-        Ok(())
     }
 
-    pub async fn write_frame_ref<'a>(&mut self, frame: &FrameRef<'a>) -> io::Result<()> {
-        match frame {
-            FrameRef::Array(val) => {
-                self.write_buffer.put_u8(b'*');
-                self.write_decimal(val.len() as i64).await?;
-
-                let iter = val.iter();
-
-                for frame in iter {
-                    self.write_val_ref(frame).await?;
-                }
-            }
-            // frame is a literal. Encode using helper function for writing frame literals to the
-            // stream.
-            _ => self.write_val_ref(frame).await?,
-        }
-
-        Ok(())
-    }
-
-    /// Write a frame literal (non array) to the stream.
-    pub async fn write_val(&mut self, frame: &Frame) -> io::Result<()> {
-        match frame {
-            Frame::Simple(message) => {
-                self.write_buffer.put_u8(b'+');
-                self.write_buffer.put_slice(&message);
-                self.write_buffer.put_slice(b"\r\n");
-            }
-            Frame::Error(err) => {
-                self.write_buffer.put_u8(b'-');
-                self.write_buffer.put_slice(err.as_bytes());
-                self.write_buffer.put_slice(b"\r\n");
-            }
-            Frame::Integer(val) => {
-                self.write_buffer.put_u8(b':');
-                self.write_decimal(*val).await?;
-            }
-            Frame::Double(val) => {
-                self.write_double(*val).await?;
-            }
-            Frame::Null => {
-                self.write_buffer.put_slice(b"$-1\r\n");
-            }
-            Frame::Bulk(message) => {
-                let message_len = message.len();
-
+    pub fn write_data(&mut self, data: &Data) {
+        match data {
+            Data::Bytes(val) => {
                 self.write_buffer.put_u8(b'$');
-                self.write_decimal(message_len as i64).await?;
-                self.write_buffer.put_slice(message);
+                self.write_decimal(val.len() as i64);
+                self.write_buffer.put_slice(val);
                 self.write_buffer.put_slice(b"\r\n");
             }
-            Frame::Array(_) => unreachable!(),
+            Data::String(val) => {
+                self.write_buffer.put_u8(b'+');
+                self.write_buffer.put_slice(val);
+                self.write_buffer.put_slice(b"\r\n");
+            }
+            Data::Integer(val) => self.write_decimal(*val),
+            Data::Double(val) => self.write_double(*val),
+            Data::Array(_) => {
+                unreachable!("nested arrays are not supported!");
+            }
         }
-        Ok(())
     }
 
-    /// Write a frameref literal (non array) to the stream.
-    pub async fn write_val_ref<'a>(&mut self, frame: &FrameRef<'a>) -> io::Result<()> {
-        match frame {
-            &FrameRef::Simple(message) => {
-                self.write_buffer.put_u8(b'+');
-                self.write_buffer.put_slice(&message);
-                self.write_buffer.put_slice(b"\r\n");
-            }
-            &FrameRef::Integer(val) => {
-                self.write_buffer.put_u8(b':');
-                self.write_decimal(val).await?;
-            }
-            &FrameRef::Double(val) => {
-                self.write_double(val).await?;
-            }
-            &FrameRef::Bulk(message) => {
-                let message_len = message.len();
+    pub fn write_error_frame(&mut self, error: &str) {
+        self.write_buffer.put_u8(b'-');
+        self.write_buffer.put_slice(error.as_bytes());
+        self.write_buffer.put_slice(b"\r\n");
+    }
 
-                self.write_buffer.put_u8(b'$');
-                self.write_decimal(message_len as i64).await?;
-                self.write_buffer.put_slice(message);
-                self.write_buffer.put_slice(b"\r\n");
-            }
-            &FrameRef::Array(_) => unreachable!(),
-        }
-        Ok(())
+    pub fn write_null_frame(&mut self) {
+        self.write_buffer.put_slice(b"$-1\r\n");
     }
 
     /// Write a double value to the stream.
-    pub async fn write_double(&mut self, val: f64) -> io::Result<()> {
+    pub fn write_double(&mut self, val: f64) {
         use ryu;
         // RESP3 Special cases: +inf, -inf, nan
         if val.is_infinite() {
@@ -232,10 +165,10 @@ impl Connection {
             } else {
                 self.write_buffer.put_slice(b"-inf\r\n");
             }
-            return Ok(());
+            return;
         } else if val.is_nan() {
             self.write_buffer.put_slice(b",nan\r\n");
-            return Ok(());
+            return;
         }
 
         // Identifier for double.
@@ -248,12 +181,10 @@ impl Connection {
 
         self.write_buffer.put_slice(printed.as_bytes());
         self.write_buffer.put_slice(b"\r\n");
-
-        Ok(())
     }
 
     /// Writes a decimal frame to the stream.
-    pub async fn write_decimal(&mut self, val: i64) -> io::Result<()> {
+    pub fn write_decimal(&mut self, val: i64) {
         use itoa;
         // using itoa crate for better performance than std::fmt
         let mut buf = itoa::Buffer::new();
@@ -262,7 +193,5 @@ impl Connection {
 
         self.write_buffer.put_slice(printed.as_bytes());
         self.write_buffer.put_slice(b"\r\n");
-
-        Ok(())
     }
 }

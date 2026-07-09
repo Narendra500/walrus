@@ -5,7 +5,7 @@ use bytes::Bytes;
 use crate::{
     Connection,
     db::{Data, Db},
-    errors::{self, WalrusError},
+    errors::WalrusError,
     frame::Frame,
     parse::Parse,
 };
@@ -77,15 +77,12 @@ impl LPush {
 
         match result {
             Ok(len) => {
-                let frame = Frame::Integer(len as i64);
-                conn.write_frame(&frame).await?;
+                let data = &Data::Integer(len as i64);
+                conn.write_data(data);
                 db.notify_blocked(&key);
             }
             Err(_) => {
-                conn.write_frame(&Frame::Error(
-                    errors::WalrusError::WrongType.get_msg().into(),
-                ))
-                .await?;
+                conn.write_error_frame(WalrusError::WrongType.get_msg());
             }
         }
 
