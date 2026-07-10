@@ -1,6 +1,6 @@
-mod connection;
+pub mod connection;
 
-pub(crate) use connection::Connection;
+pub use connection::Connection;
 
 pub(crate) mod cmd;
 pub(crate) use cmd::Command;
@@ -12,6 +12,6 @@ pub mod server;
 
 pub mod client;
 
-pub(crate) mod db;
+pub mod db;
 
 pub mod errors;

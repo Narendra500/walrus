@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::io::{self, Cursor};
 
 use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -50,6 +50,25 @@ impl Connection {
         }
     }
 
+    /// Flush the write buffer to the TCP stream.
+    /// Only performs I/O if the write buffer is non-empty.
+    pub async fn flush(&mut self) -> io::Result<()> {
+        if !self.write_buffer.is_empty() {
+            self.stream.write_all(&self.write_buffer).await?;
+            self.write_buffer.clear();
+        }
+        Ok(())
+    }
+
+    /// Check if the read buffer already contains a complete frame.
+    /// Used by the server to decide whether to flush the write buffer —
+    /// if more pipelined commands are buffered, we skip the flush to batch
+    /// responses into a single syscall.
+    pub fn has_buffered_frame(&self) -> bool {
+        let mut buf = Cursor::new(&self.buffer[..]);
+        Frame::check(&mut buf).is_ok()
+    }
+
     /// Loops until enough data is available to read a frame from the buffer.
     /// Any remaining data is left untouched for next `read_frame`.
     ///
@@ -65,10 +84,7 @@ impl Connection {
 
             // Not enough buffered data to parse a full frame.
             // flush the current contents of the buffer to stream.
-            if !self.write_buffer.is_empty() {
-                self.stream.write_all(&self.write_buffer).await?;
-                self.write_buffer.clear();
-            }
+            self.flush().await?;
 
             // Wait for client to send more data
             // If number of bytes read into buffer is 0, then the stream has ended.
@@ -116,6 +132,62 @@ impl Connection {
         }
     }
 
+    /// Write a single `Frame` to the stream.
+    ///
+    /// Nested array's not supported as of yet.
+    pub fn write_frame(&mut self, frame: &Frame) {
+        match frame {
+            Frame::Array(val) => {
+                self.write_buffer.put_u8(b'*');
+                self.write_decimal(val.len() as i64);
+
+                let iter = val.iter();
+
+                for frame in iter {
+                    self.write_val(frame);
+                }
+            }
+            // frame is a literal. Encode using helper function for writing frame literals to the
+            // stream.
+            _ => self.write_val(frame),
+        }
+    }
+
+    /// Write a frame literal (non array) to the stream.
+    pub fn write_val(&mut self, frame: &Frame) {
+        match frame {
+            Frame::Simple(message) => {
+                self.write_buffer.put_u8(b'+');
+                self.write_buffer.put_slice(&message);
+                self.write_buffer.put_slice(b"\r\n");
+            }
+            Frame::Error(err) => {
+                self.write_buffer.put_u8(b'-');
+                self.write_buffer.put_slice(err.as_bytes());
+                self.write_buffer.put_slice(b"\r\n");
+            }
+            Frame::Integer(val) => {
+                self.write_buffer.put_u8(b':');
+                self.write_decimal(*val);
+            }
+            Frame::Double(val) => {
+                self.write_double(*val);
+            }
+            Frame::Null => {
+                self.write_buffer.put_slice(b"$-1\r\n");
+            }
+            Frame::Bulk(message) => {
+                let message_len = message.len();
+
+                self.write_buffer.put_u8(b'$');
+                self.write_decimal(message_len as i64);
+                self.write_buffer.put_slice(message);
+                self.write_buffer.put_slice(b"\r\n");
+            }
+            Frame::Array(_) => unreachable!(),
+        }
+    }
+
     pub fn write_data_array<'a>(&mut self, items: impl Iterator<Item = &'a Data>, len: usize) {
         self.write_buffer.put_u8(b'*');
         self.write_decimal(len as i64);
@@ -137,7 +209,10 @@ impl Connection {
                 self.write_buffer.put_slice(val);
                 self.write_buffer.put_slice(b"\r\n");
             }
-            Data::Integer(val) => self.write_decimal(*val),
+            Data::Integer(val) => {
+                self.write_buffer.put_u8(b':');
+                self.write_decimal(*val);
+            }
             Data::Double(val) => self.write_double(*val),
             Data::Array(_) => {
                 unreachable!("nested arrays are not supported!");

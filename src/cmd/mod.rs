@@ -98,7 +98,7 @@ impl Command {
             Command::LRange(cmd) => cmd.execute(db, conn).await,
             Command::Type(cmd) => cmd.execute(db, conn).await,
             Command::Unknown(cmd) => {
-                conn.write_error_frame(format!("ERRunknown command {cmd}").as_str());
+                conn.write_error_frame(format!("unknown command {cmd}").as_str());
                 Ok(())
             }
         }

@@ -30,45 +30,45 @@ Walrus was engineered to minimize system calls and maximize network card utiliza
 
 Walrus has been extensively profiled using `perf` and flamegraphs to eliminate kernel-level blocking. Walrus achieves exceptional throughput on standard hardware:
 
-**valkey-benchmark -p 6380 -n 5000000 -t get,set,lpop,lrange -c 50 -q -P 32 --threads 1**
-* `SET`: 3362474.75 requests per second, p50=0.223 msec
-* `GET`: 3900156.25 requests per second, p50=0.207 msec
-* `LPOP`: 3831417.75 requests per second, p50=0.207 msec
-* `LPUSH`: 3720238.25 requests per second, p50=0.215 msec
-* `LRANGE_100` (first 100 elements): 3115264.75 requests per second, p50=0.247 msec
-* `LRANGE_300` (first 300 elements): 3300330.00 requests per second, p50=0.239 msec
-* `LRANGE_500` (first 500 elements): 3071253.00 requests per second, p50=0.247 msec
-* `LRANGE_600` (first 600 elements): 3265839.25 requests per second, p50=0.247 msec
+**valkey-benchmark -p 6380 -n 1000000 -t get,set,lpop,lrange -c 500 -q --threads 12**
+* `SET`: 568504.88 requests per second, p50=0.495 msec
+* `GET`: 569152.00 requests per second, p50=0.495 msec
+* `LPOP`: 567859.19 requests per second, p50=0.463 msec
+* `LPUSH`: 568828.19 requests per second, p50=0.487 msec
+* `LRANGE_100` (first 100 elements): 442477.88 requests per second, p50=0.607 msec
+* `LRANGE_300` (first 300 elements): 264620.28 requests per second, p50=1.015 msec
+* `LRANGE_500` (first 500 elements): 180799.12 requests per second, p50=1.447 msec
+* `LRANGE_600` (first 600 elements): 158679.78 requests per second, p50=1.671 msec
 
-**valkey-benchmark -p 6380 -n 5000000 -t get,set,lpop,lrange -c 50 -q -P 32 --threads 12**
-* `SET`: 3990423.00 requests per second, p50=0.319 msec
-* `GET`: 6657789.50 requests per second, p50=0.167 msec
-* `LPOP`: 6657789.50 requests per second, p50=0.143 msec
-* `LPUSH`: 4990020.00 requests per second, p50=0.199 msec
-* `LRANGE_100` (first 100 elements): 4990020.00 requests per second, p50=0.215 msec
-* `LRANGE_300` (first 300 elements): 4985045.00 requests per second, p50=0.215 msec
-* `LRANGE_500` (first 500 elements): 4990020.00 requests per second, p50=0.215 msec
-* `LRANGE_600` (first 600 elements): 4990020.00 requests per second, p50=0.215 msec
+**valkey-benchmark -p 6380 -n 5000000 -t get,set,lpop,lrange -c 500 -q -P 32 --threads 12**
+* `SET`: 4960317.50 requests per second, p50=2.687 msec
+* `GET`: 6605019.50 requests per second, p50=1.551 msec
+* `LPOP`: 2849002.75 requests per second, p50=5.039 msec
+* `LPUSH`: 2849002.75 requests per second, p50=4.343 msec
+* `LRANGE_100` (first 100 elements): 1316482.38 requests per second, p50=5.559 msec
+* `LRANGE_300` (first 300 elements): 428302.22 requests per second, p50=8.983 msec
+* `LRANGE_500` (first 500 elements): 246135.69 requests per second, p50=10.559 msec
+* `LRANGE_600` (first 600 elements): 207125.11 requests per second, p50=10.855 msec
 
 **valkey-benchmark -p 6380 -n 1000000 -t get,set,lpop,lrange -c 50 -q --threads 12**
-* `SET`: 399361.03 requests per second, p50=0.087 msec
-* `GET`: 399520.56 requests per second, p50=0.087 msec
-* `LPOP`: 444247.03 requests per second, p50=0.087 msec
+* `SET`: 399520.56 requests per second, p50=0.095 msec
+* `GET`: 400000.00 requests per second, p50=0.087 msec
+* `LPOP`: 399680.25 requests per second, p50=0.087 msec
 * `LPUSH`: 399520.56 requests per second, p50=0.087 msec
-* `LRANGE_100` (first 100 elements): 399680.25 requests per second, p50=0.087 msec
-* `LRANGE_300` (first 300 elements): 399840.06 requests per second, p50=0.087 msec
-* `LRANGE_500` (first 500 elements): 399680.25 requests per second, p50=0.087 msec
-* `LRANGE_600` (first 600 elements): 399520.56 requests per second, p50=0.087 msec
+* `LRANGE_100` (first 100 elements): 333000.34 requests per second, p50=0.095 msec
+* `LRANGE_300` (first 300 elements): 221975.58 requests per second, p50=0.127 msec
+* `LRANGE_500` (first 500 elements): 166444.75 requests per second, p50=0.159 msec
+* `LRANGE_600` (first 600 elements): 147950.89 requests per second, p50=0.175 msec
 
 **valkey-benchmark -p 6380 -n 10000000 -t get,set,lpop,lrange -c 1000 -P 32 -q --threads 12**
-* `SET`: 4960317.50 requests per second, p50=5.535 msec
-* `GET`: 7936508.00 requests per second, p50=2.951 msec
-* `LPOP`: 6626905.50 requests per second, p50=3.247 msec
-* `LPUSH`: 6587615.50 requests per second, p50=3.439 msec
-* `LRANGE_100` (first 100 elements): 5691519.50 requests per second, p50=4.143 msec
-* `LRANGE_300` (first 300 elements): 5678591.50 requests per second, p50=3.935 msec
-* `LRANGE_500` (first 500 elements): 5652911.00 requests per second, p50=3.871 msec
-* `LRANGE_600` (first 600 elements): 5636978.50 requests per second, p50=4.079 msec
+* `SET`: 5662514.00 requests per second, p50=4.839 msec
+* `GET`: 7930214.00 requests per second, p50=2.999 msec
+* `LPOP`: 7930214.00 requests per second, p50=3.103 msec
+* `LPUSH`: 2658160.50 requests per second, p50=8.951 msec
+* `LRANGE_100` (first 100 elements): 1355197.12 requests per second, p50=9.951 msec
+* `LRANGE_300` (first 300 elements): 423423.78 requests per second, p50=15.855 msec
+* `LRANGE_500` (first 500 elements): 249028.80 requests per second, p50=19.295 msec
+* `LRANGE_600` (first 600 elements): 209762.34 requests per second, p50=19.663 msec
 
 *(Note: Benchmarks run on Intel i5 12450hx CPU)*
 

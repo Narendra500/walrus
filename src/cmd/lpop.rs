@@ -18,12 +18,6 @@ pub struct LPop {
     count: i64,
 }
 
-enum LPopErrors {
-    ValueOutOfRange,
-    WrongType,
-    NotFound,
-}
-
 impl LPop {
     /// Return a new LPop command.
     pub fn new(list_key: Bytes, count: Option<i64>) -> Self {
@@ -76,7 +70,7 @@ impl LPop {
                         // Return single element as a single frame instead of an array.
                         conn.write_data(&list.pop_front().unwrap());
                     } else {
-                        conn.write_data_array(list.range(0..count as usize), 0 - count as usize);
+                        conn.write_data_array(list.range(0..count as usize), count as usize);
                         list.drain(0..count as usize);
                     }
                 }

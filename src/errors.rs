@@ -2,7 +2,6 @@ use crate::{frame, parse::ParseError};
 use core::fmt;
 
 const WRONGTYPE_ERR: &str = "WRONGTYPE Operation against a key holding the wrong kind of value";
-const INTERNAL_ERR: &str = "Internal error";
 const CONNECTION_CLOSED_ERR: &str = "Connection closed";
 const END_OF_STREAM_ERR: &str = "End of stream";
 
@@ -12,6 +11,7 @@ pub enum WalrusError {
     EndOfStream,
     Internal(String),
     ConnectionClosed,
+    SyntaxError(String),
 }
 
 impl WalrusError {
@@ -19,7 +19,7 @@ impl WalrusError {
         match self {
             WalrusError::WrongType => WRONGTYPE_ERR,
             WalrusError::EndOfStream => END_OF_STREAM_ERR,
-            WalrusError::Internal(msg) => msg,
+            WalrusError::Internal(msg) | WalrusError::SyntaxError(msg) => msg,
             WalrusError::ConnectionClosed => CONNECTION_CLOSED_ERR,
         }
     }
@@ -30,7 +30,7 @@ impl std::fmt::Display for WalrusError {
         match self {
             WalrusError::WrongType => fmt::Display::fmt(WRONGTYPE_ERR, f),
             WalrusError::EndOfStream => fmt::Display::fmt(END_OF_STREAM_ERR, f),
-            WalrusError::Internal(msg) => fmt::Display::fmt(msg, f),
+            WalrusError::Internal(msg) | WalrusError::SyntaxError(msg) => fmt::Display::fmt(msg, f),
             WalrusError::ConnectionClosed => fmt::Display::fmt(CONNECTION_CLOSED_ERR, f),
         }
     }
@@ -72,7 +72,7 @@ impl Into<String> for WalrusError {
         match self {
             WalrusError::WrongType => WRONGTYPE_ERR.into(),
             WalrusError::EndOfStream => END_OF_STREAM_ERR.into(),
-            WalrusError::Internal(msg) => msg,
+            WalrusError::Internal(msg) | WalrusError::SyntaxError(msg) => msg,
             WalrusError::ConnectionClosed => CONNECTION_CLOSED_ERR.into(),
         }
     }

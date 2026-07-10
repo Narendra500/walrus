@@ -149,6 +149,12 @@ impl Handler {
             let cmd = Command::from_frame(frame)?;
 
             cmd.execute(&self.db, &mut self.connection).await?;
+
+            // Flush the write buffer if there are no more pipelined commands
+            // already buffered.
+            if !self.connection.has_buffered_frame() {
+                self.connection.flush().await?;
+            }
         }
     }
 }

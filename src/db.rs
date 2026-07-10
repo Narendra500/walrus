@@ -100,7 +100,11 @@ impl Db {
     pub(crate) fn new() -> Db {
         let shared = Arc::new(Shared {
             state: State {
-                entries: DashMap::default(),
+                entries: DashMap::with_capacity_and_hasher_and_shard_amount(
+                    512,
+                    ahash::RandomState::new(),
+                    64,
+                ),
                 expirations: Mutex::new(BTreeSet::new()),
                 shutdown: AtomicBool::new(false),
                 blocking_keys: DashMap::new(),
@@ -201,55 +205,69 @@ impl Db {
     /// Returns `None` if the array is empty or key does not exist.
     /// Returns `Err` if key holds a non-array value.
     pub(crate) fn pop_front(&self, key: &Bytes) -> Result<Option<Data>, WalrusError> {
-        let maybe_entry = self.shared.state.entries.get_mut(key);
-
-        if let Some(mut entry) = maybe_entry {
-            match entry.data {
-                Data::Array(ref mut arr) => {
-                    let data = arr.pop_front();
-                    if arr.is_empty() {
-                        self.shared.state.entries.remove(key);
+        let mut remove = false;
+        let data = {
+            let maybe_entry = self.shared.state.entries.get_mut(key);
+            if let Some(mut entry) = maybe_entry {
+                match entry.data {
+                    Data::Array(ref mut arr) => {
+                        let data = arr.pop_front();
+                        if arr.is_empty() {
+                            remove = true;
+                        }
+                        Ok(data)
                     }
-                    Ok(data)
+                    _ => Err(WalrusError::WrongType),
                 }
-                _ => Err(WalrusError::WrongType),
+            } else {
+                return Ok(None);
             }
-        } else {
-            Ok(None)
+        };
+
+        if remove {
+            self.shared.state.entries.remove(key);
         }
+
+        data
     }
 
     /// Pop the last element of an array.
     /// Returns `None` if the array is empty or key does not exist.
     /// Returns `Err` if key holds a non-array value.
     pub(crate) fn pop_back(&self, key: &Bytes) -> Result<Option<Data>, WalrusError> {
-        let maybe_entry = self.shared.state.entries.get_mut(key);
-
-        if let Some(mut entry) = maybe_entry {
-            match entry.data {
-                Data::Array(ref mut arr) => {
-                    let data = arr.pop_back();
-                    if arr.is_empty() {
-                        self.shared.state.entries.remove(key);
+        let mut remove = false;
+        let data = {
+            let maybe_entry = self.shared.state.entries.get_mut(key);
+            if let Some(mut entry) = maybe_entry {
+                match entry.data {
+                    Data::Array(ref mut arr) => {
+                        let data = arr.pop_back();
+                        if arr.is_empty() {
+                            remove = true;
+                        }
+                        Ok(data)
                     }
-                    Ok(data)
+                    _ => Err(
+                        "WRONGTYPE Operation against a key holding the wrong kind of value".into(),
+                    ),
                 }
-                _ => {
-                    Err("WRONGTYPE Operation against a key holding the wrong kind of value".into())
-                }
+            } else {
+                return Ok(None);
             }
-        } else {
-            Ok(None)
+        };
+
+        if remove {
+            self.shared.state.entries.remove(key);
         }
+
+        data
     }
 
     /// Notify a connection waiting on a key.
     pub(crate) fn notify_blocked(&self, key: &Bytes) {
-        self.shared
-            .state
-            .blocking_keys
-            .get(key)
-            .map(|notify| notify.notify_one());
+        if let Some(notify) = self.shared.state.blocking_keys.get(key) {
+            notify.notify_one();
+        }
     }
 
     /// Get or create a notifier for a key.
@@ -318,22 +336,30 @@ impl Shared {
         // Find all keys scheduled to expire before `now`.
         let now = Instant::now();
 
-        while let Some(&(when, ref key)) = self.state.expirations.lock().unwrap().iter().next() {
-            if when > now {
-                // Done purging, `when` is the instant at which the next key will expire.
-                // The worker task will wait until this instant.
-                return Some(when);
-            }
-            // remove the expired entry from DashMap.
-            self.state.entries.remove(key);
-            self.state
-                .expirations
-                .lock()
-                .unwrap()
-                .remove(&(when, key.clone()));
-        }
+        loop {
+            let mut expirations = self.state.expirations.lock().unwrap();
+            if let Some(&(when, ref key)) = expirations.iter().next() {
+                if when > now {
+                    // Done purging, `when` is the instant at which the next key will expire.
+                    // The worker task will wait until this instant.
+                    return Some(when);
+                }
 
-        None
+                let key_clone = key.clone();
+                let when_clone = when;
+
+                // Remove from expirations set first.
+                expirations.remove(&(when_clone, key_clone.clone()));
+
+                // Drop the lock before operating on DashMap entries to avoid deadlock.
+                drop(expirations);
+
+                // Remove the expired entry from DashMap.
+                self.state.entries.remove(&key_clone);
+            } else {
+                return None;
+            }
+        }
     }
 
     /// Returns `true` if database is shutting down.

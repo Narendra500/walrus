@@ -45,45 +45,31 @@ impl LPush {
     /// Returns the number of data elements in the array after insertion if successful or
     /// `WRONGTYPE` error if data item with `list_key` is not a list.
     pub(crate) async fn execute(self, db: &Db, conn: &mut Connection) -> Result<(), WalrusError> {
-        let key = self.list_key.clone();
+        let key = self.list_key;
 
-        // Use block to strictly scope the DashMap lock.
-        // The return either Ok(len) or Err(()), this determines the network response.
-        let result = {
-            if let Some(mut entry) = db.get_mut(&key) {
-                // Key exists.
-                match &mut entry.data {
-                    Data::Array(list) => {
-                        let new_data = self.data;
-                        for data in new_data {
-                            list.push_front(data);
-                        }
-                        Ok(list.len())
+        if let Some(mut entry) = db.get_mut(&key) {
+            // Key exists.
+            match &mut entry.data {
+                Data::Array(list) => {
+                    let new_data = self.data;
+                    for data in new_data {
+                        list.push_front(data);
                     }
-                    // Not an array.
-                    _ => Err(()),
+                    conn.write_data(&Data::Integer(list.len() as i64));
                 }
-            } else {
-                // Key doesn't exist, create it.
-                let mut new_data = self.data;
-                new_data.make_contiguous().reverse();
-                let list_len = new_data.len();
-
-                db.set(&key, Data::Array(new_data), None);
-
-                Ok(list_len)
+                // Not an array.
+                _ => conn.write_error_frame(WalrusError::WrongType.get_msg()),
             }
-        }; // Dashmap lock is dropped here.
+        } else {
+            // Key doesn't exist, create it.
+            let mut new_data = self.data;
+            new_data.make_contiguous().reverse();
+            let list_len = new_data.len();
 
-        match result {
-            Ok(len) => {
-                let data = &Data::Integer(len as i64);
-                conn.write_data(data);
-                db.notify_blocked(&key);
-            }
-            Err(_) => {
-                conn.write_error_frame(WalrusError::WrongType.get_msg());
-            }
+            db.set(&key, Data::Array(new_data), None);
+
+            conn.write_data(&Data::Integer(list_len as i64));
+            db.notify_blocked(&key);
         }
 
         Ok(())
