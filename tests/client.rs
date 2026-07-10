@@ -6,6 +6,38 @@ use rand::{RngExt, distr::Alphanumeric, random};
 use std::{collections::VecDeque, time::Duration};
 use tokio::time::{Instant, sleep_until};
 
+use std::sync::atomic::{AtomicBool, Ordering};
+static SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
+
+fn ensure_server_running() {
+    if !SERVER_RUNNING.load(Ordering::Acquire) {
+        std::thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                if let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:6380").await {
+                    walrus::server::run(listener, 6380, None, None).await;
+                }
+            });
+        });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        SERVER_RUNNING.store(true, Ordering::Release);
+    }
+}
+
+async fn connect_client() -> Client {
+    ensure_server_running();
+    Client::connect(
+        SERVER_IPADDRESS.to_string(),
+        READ_BUFFER_SIZE,
+        WRITE_BUFFER_SIZE,
+    )
+    .await
+    .unwrap()
+}
+
 const SERVER_IPADDRESS: &str = "127.0.0.1:6380";
 const READ_BUFFER_SIZE: Option<u16> = Some(32);
 const WRITE_BUFFER_SIZE: Option<u16> = Some(32);
@@ -44,13 +76,7 @@ fn random_data_array(len: usize) -> VecDeque<Data> {
 
 #[tokio::test]
 async fn ping_test() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
     let ping_response = client.ping(None).await.unwrap();
 
     assert_eq!(ping_response, Bytes::from("PONG"));
@@ -59,13 +85,7 @@ async fn ping_test() {
 #[tokio::test]
 async fn ping_test_with_message() {
     let message = "Hello There!".as_bytes();
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
     let ping_response = client.ping(Some(Bytes::from(message))).await.unwrap();
     println!("{ping_response:?}");
 
@@ -74,13 +94,7 @@ async fn ping_test_with_message() {
 
 #[tokio::test]
 async fn multi_ping_test() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let mut ping_response_list = vec![];
     for _ in 0..5 {
@@ -96,13 +110,7 @@ async fn multi_ping_test() {
 #[tokio::test]
 async fn multi_ping_test_with_message() {
     let message = "Hello There!".as_bytes();
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let mut ping_response_list = vec![];
     for _ in 0..5 {
@@ -118,13 +126,7 @@ async fn multi_ping_test_with_message() {
 
 #[tokio::test]
 async fn set_test_no_expire() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let key = random_bytes(6);
     let value = Bytes::from("value1 value2 value3 value4");
@@ -139,13 +141,7 @@ async fn set_test_no_expire() {
 /// Expected response from server is a Null frame for the get command.
 #[tokio::test]
 async fn set_get_test_after_expire() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let key = random_bytes(6);
     let value = Bytes::from("value1 value2 value3 value4");
@@ -175,13 +171,7 @@ async fn set_get_test_after_expire() {
 /// The expected response is a Bulk frame containing the value of the key.
 #[tokio::test]
 async fn set_get_test_before_expire() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let key = random_bytes(6);
     let original_value = Bytes::from("value1 value2 value3 value4");
@@ -207,13 +197,7 @@ async fn set_get_test_before_expire() {
 
 #[tokio::test]
 async fn get_double_trailing_zeros_test() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
     let key = random_bytes(6);
     let value = "5000.00";
 
@@ -235,13 +219,7 @@ async fn get_double_trailing_zeros_test() {
 /// Checks if the response is not zero.
 #[tokio::test]
 async fn rpush_test() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list_key = random_bytes(6);
     let data = random_data_array(3);
@@ -257,13 +235,7 @@ async fn rpush_test() {
 /// Checks if the length of the list is the sum of the two lists.
 #[tokio::test]
 async fn lpush_test() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list_key = random_bytes(6);
     let data = random_data_array(3);
@@ -288,13 +260,7 @@ async fn lpush_test() {
 /// start is 0 and end is length of list - 1.
 #[tokio::test]
 async fn lrange_test_full_range() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list_key = random_bytes(6);
     let data = random_data_array(3);
@@ -324,13 +290,7 @@ async fn lrange_test_full_range() {
 /// the actual list range.
 #[tokio::test]
 async fn lrange_out_of_bounds_test() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list_key = random_bytes(6);
     let mut data = random_data_array(3);
@@ -358,9 +318,7 @@ async fn lrange_out_of_bounds_test() {
 /// Get's back the last two elements of the list using negative indices.
 #[tokio::test]
 async fn lrange_test_negative_indices() {
-    let mut client = Client::connect(SERVER_IPADDRESS, READ_BUFFER_SIZE, WRITE_BUFFER_SIZE)
-        .await
-        .unwrap();
+    let mut client = connect_client().await;
     let list_key = random_bytes(8);
 
     let data = VecDeque::from([Data::Integer(1), Data::Integer(2), Data::Integer(3)]);
@@ -379,13 +337,7 @@ async fn lrange_test_negative_indices() {
 /// checks if the returned length is same as the one sent originally.
 #[tokio::test]
 async fn llen_test() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list_key = random_bytes(6);
     let data = random_data_array(3);
@@ -405,13 +357,7 @@ async fn llen_test() {
 /// Test for `LPop` command without specifying the count, returns the first element of the list with key.
 #[tokio::test]
 async fn lpop_no_count() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list_key = random_bytes(6);
     let data = random_data_array(6);
@@ -431,13 +377,7 @@ async fn lpop_no_count() {
 /// Test for `LPop` command, returns the first element of the list with key.
 #[tokio::test]
 async fn lpop_test_first_only() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list_key = random_bytes(6);
     let data = random_data_array(6);
@@ -462,13 +402,7 @@ async fn lpop_test_first_only() {
 /// Test for `LPop` command, returns the first `count` elements of the list with key.
 #[tokio::test]
 async fn lpop_test_multiple_within_bounds() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list_key = random_bytes(6);
     let data = random_data_array(6);
@@ -492,13 +426,7 @@ async fn lpop_test_multiple_within_bounds() {
 #[tokio::test]
 #[should_panic(expected = "value is out of range, must be positive")]
 async fn lpop_test_negative_count() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list_key = random_bytes(6);
     let data = random_data_array(6);
@@ -516,13 +444,7 @@ async fn lpop_test_negative_count() {
 
 #[tokio::test]
 async fn blpop_test_immediate_return() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list = random_bytes(6);
     let data = random_data_array(6);
@@ -544,13 +466,7 @@ async fn blpop_test_immediate_return() {
 
 #[tokio::test]
 async fn blpop_test_timeout() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let list = random_bytes(6);
 
@@ -569,20 +485,8 @@ async fn blpop_test_timeout() {
 
 #[tokio::test]
 async fn blpop_test_concurrent_wakeup() {
-    let mut client1 = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
-    let mut client2 = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client1 = connect_client().await;
+    let mut client2 = connect_client().await;
 
     let list = random_bytes(6);
     let data = random_data_array(1);
@@ -606,13 +510,7 @@ async fn blpop_test_concurrent_wakeup() {
 
 #[tokio::test]
 async fn blpop_test_key_priority() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let key_empty = random_bytes(6);
     let key_populated = random_bytes(6);
@@ -645,13 +543,7 @@ async fn blpop_test_key_priority() {
 
 #[tokio::test]
 async fn wtype_test_list() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let key = random_bytes(6);
     let value = random_data_array(3);
@@ -664,13 +556,7 @@ async fn wtype_test_list() {
 
 #[tokio::test]
 async fn wtype_test_string() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let key = random_bytes(6);
     let value = random_bytes(6);
@@ -683,13 +569,7 @@ async fn wtype_test_string() {
 
 #[tokio::test]
 async fn wtype_test_integer() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let key = random_bytes(6);
     let value = int_to_string(random::<i64>());
@@ -702,13 +582,7 @@ async fn wtype_test_integer() {
 
 #[tokio::test]
 async fn wtype_test_double() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let key = random_bytes(6);
     let value = double_to_string(random::<f64>());
@@ -721,13 +595,7 @@ async fn wtype_test_double() {
 
 #[tokio::test]
 async fn wtype_test_non_existent_key() {
-    let mut client = Client::connect(
-        SERVER_IPADDRESS.to_string(),
-        READ_BUFFER_SIZE,
-        WRITE_BUFFER_SIZE,
-    )
-    .await
-    .unwrap();
+    let mut client = connect_client().await;
 
     let key = random_bytes(6);
 
@@ -752,4 +620,102 @@ async fn test_pipeline_processing() {
 
     let expected_response = "$4\r\nPONG\r\n$2\r\nOK\r\n$4\r\nval1\r\n";
     assert_eq!(response, expected_response);
+}
+
+#[tokio::test]
+async fn blpop_multiple_waiters_fifo_order() {
+    let mut client1 = connect_client().await;
+    let mut client2 = connect_client().await;
+    let mut client3 = connect_client().await;
+    let mut client4 = connect_client().await;
+
+    let list_key = random_bytes(8);
+
+    // Spawn client1 BLPOP
+    let list_key1 = list_key.clone();
+    let handle1 = tokio::spawn(async move { client1.blpop(vec![list_key1], 5.0).await.unwrap() });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Spawn client2 BLPOP
+    let list_key2 = list_key.clone();
+    let handle2 = tokio::spawn(async move { client2.blpop(vec![list_key2], 5.0).await.unwrap() });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Spawn client3 BLPOP
+    let list_key3 = list_key.clone();
+    let handle3 = tokio::spawn(async move { client3.blpop(vec![list_key3], 5.0).await.unwrap() });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Push the first element
+    let mut data1 = VecDeque::new();
+    data1.push_back(Data::Bytes(Bytes::from("val1")));
+    client4.rpush(list_key.clone(), data1).await.unwrap();
+
+    // The first waiter (client1) should be woken up and receive val1
+    let res1 = handle1.await.unwrap();
+    assert!(res1.is_some());
+    assert_eq!(res1.unwrap()[1], Data::Bytes(Bytes::from("val1")));
+
+    // Verify other waiters are still blocked (not resolved yet)
+    assert!(!handle2.is_finished());
+    assert!(!handle3.is_finished());
+
+    // Push the second element
+    let mut data2 = VecDeque::new();
+    data2.push_back(Data::Bytes(Bytes::from("val2")));
+    client4.rpush(list_key.clone(), data2).await.unwrap();
+
+    // The second waiter (client2) should be woken up and receive val2
+    let res2 = handle2.await.unwrap();
+    assert!(res2.is_some());
+    assert_eq!(res2.unwrap()[1], Data::Bytes(Bytes::from("val2")));
+
+    assert!(!handle3.is_finished());
+}
+
+#[tokio::test]
+async fn test_high_concurrency_set_get() {
+    use futures::future::join_all;
+
+    let mut handles = vec![];
+
+    // Spawn 50 tasks concurrently executing SET/GET operations
+    for i in 0..50 {
+        handles.push(tokio::spawn(async move {
+            let mut client = connect_client().await;
+            let key = Bytes::from(format!("concurrent_key_{}", i));
+            let val = Bytes::from(format!("val_{}", i));
+
+            // Perform multiple SET/GET cycles to check thread safety
+            for _ in 0..10 {
+                client.set(key.clone(), val.clone(), None).await.unwrap();
+                let res = client.get(key.clone()).await.unwrap().unwrap();
+                assert_eq!(res, val);
+            }
+        }));
+    }
+
+    join_all(handles).await;
+}
+
+#[tokio::test]
+async fn test_defensive_parsing_malformed_protocol() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+
+    ensure_server_running();
+
+    let mut stream = TcpStream::connect(SERVER_IPADDRESS).await.unwrap();
+
+    // Send a completely corrupted/malformed command frame
+    let malformed_payload = b"GET\r\n*999999999999999999999999999999\r\n";
+    stream.write_all(malformed_payload).await.unwrap();
+
+    let mut buffer = [0; 1024];
+    // The server should reject the malformed protocol and close the connection
+    let n = stream.read(&mut buffer).await.unwrap();
+    assert_eq!(n, 0, "Server should close connection on malformed protocol");
 }
