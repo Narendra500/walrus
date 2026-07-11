@@ -51,10 +51,8 @@ impl RPush {
             // Key exists.
             match &mut entry.data {
                 Data::Array(list) => {
-                    let new_data = self.data;
-                    for data in new_data {
-                        list.push_back(data);
-                    }
+                    let mut new_data = self.data;
+                    list.append(&mut new_data);
                     conn.write_data(&Data::Integer(list.len() as i64));
                     db.notify_blocked(&key);
                 }

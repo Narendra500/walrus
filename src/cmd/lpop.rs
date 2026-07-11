@@ -70,8 +70,7 @@ impl LPop {
                         // Return single element as a single frame instead of an array.
                         conn.write_data(&list.pop_front().unwrap());
                     } else {
-                        conn.write_data_array(list.range(0..count as usize), count as usize);
-                        list.drain(0..count as usize);
+                        conn.write_data_array_owned(list.drain(0..count as usize), count as usize);
                     }
                 }
                 // Data associated with the given key is not a list.

@@ -188,6 +188,7 @@ impl Connection {
         }
     }
 
+    /// Write all items of an Iterator with borrowed `Data` items to the write_buffer.
     pub fn write_data_array<'a>(&mut self, items: impl Iterator<Item = &'a Data>, len: usize) {
         self.write_buffer.put_u8(b'*');
         self.write_decimal(len as i64);
@@ -196,6 +197,18 @@ impl Connection {
         }
     }
 
+    /// Write all items of an Iterator with owned `Data` items to the write_buffer.
+    pub fn write_data_array_owned(&mut self, items: impl Iterator<Item = Data>, len: usize) {
+        self.write_buffer.put_u8(b'*');
+        self.write_decimal(len as i64);
+        for data in items {
+            self.write_data(&data);
+        }
+    }
+
+    /// Write a `Data` item to the write_buffer.
+    /// # Panics
+    /// This functions panics if Data::Array(_) item is passed as data.
     pub fn write_data(&mut self, data: &Data) {
         match data {
             Data::Bytes(val) => {
