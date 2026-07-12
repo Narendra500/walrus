@@ -426,7 +426,7 @@ impl TryFrom<Frame> for Data {
     fn try_from(src: Frame) -> Result<Self, Self::Error> {
         match src {
             Frame::Simple(string) => Ok(Data::String(string)),
-            Frame::Bulk(bytes) => Ok(Data::Bytes(bytes)),
+            Frame::Bulk(bytes) => Ok(crate::db::optimize_storage(bytes)),
             Frame::Integer(val) => Ok(Data::Integer(val)),
             Frame::Double(val) => Ok(Data::Double(val)),
             // NOTE: This will flatten nested arrays.

@@ -4,7 +4,7 @@ use crate::{
     frame::Frame,
 };
 use bytes::Bytes;
-use std::{collections::VecDeque, fmt, iter::Peekable, vec};
+use std::fmt;
 
 /// For parsing a command.
 ///
@@ -12,8 +12,10 @@ use std::{collections::VecDeque, fmt, iter::Peekable, vec};
 /// each array frame one at a time.
 #[derive(Debug)]
 pub(crate) struct Parse {
-    /// Iterator over array frames.
-    frames: Peekable<vec::IntoIter<Frame>>,
+    // Array of Frames to parse into Data..
+    frames: Vec<Frame>,
+    /// Cursor index.
+    pos: usize,
 }
 
 /// Parse errors. Only EndOfStream can be handled at runtime, all other errors should
@@ -39,18 +41,34 @@ impl Parse {
         };
 
         Ok(Parse {
-            frames: array_of_frames.into_iter().peekable(),
+            frames: array_of_frames,
+            pos: 0,
         })
     }
 
     /// Get the next frame in the array, consumes the frame.
     fn next(&mut self) -> Result<Frame, ParseError> {
-        self.frames.next().ok_or(ParseError::EndOfStream)
+        if self.pos < self.frames.len() {
+            let frame = std::mem::replace(&mut self.frames[self.pos], Frame::Null);
+            self.pos += 1;
+            Ok(frame)
+        } else {
+            Err(ParseError::EndOfStream)
+        }
     }
 
     /// Peek the next frame in the array, does not consume the frame.
-    fn peek(&mut self) -> Result<Frame, ParseError> {
-        self.frames.peek().cloned().ok_or(ParseError::EndOfStream)
+    fn peek(&mut self) -> Result<&Frame, ParseError> {
+        if self.pos < self.frames.len() {
+            Ok(&self.frames[self.pos])
+        } else {
+            Err(ParseError::EndOfStream)
+        }
+    }
+
+    /// Take the remaining parts (the frames vector and current cursor index) out of Parse.
+    pub(crate) fn take_parts(&mut self) -> (Vec<Frame>, usize) {
+        (std::mem::take(&mut self.frames), self.pos)
     }
 
     /// Try to parse any number of bytes and a timeout.
@@ -129,29 +147,6 @@ impl Parse {
         Err(ParseError::ConnectionClosed)
     }
 
-    /// Try to parse all the elements left in the array.
-    /// Returns VecDeque of Data.
-    pub(crate) fn next_array(&mut self) -> Result<VecDeque<Data>, ParseError> {
-        let mut result = VecDeque::new();
-        while let Ok(frame) = self.next() {
-            match frame {
-                Frame::Simple(data) => result.push_back(Data::String(data)),
-                Frame::Bulk(data) => result.push_back(Data::Bytes(data)),
-                Frame::Integer(data) => result.push_back(Data::Integer(data)),
-                Frame::Double(data) => result.push_back(Data::Double(data)),
-                Frame::Error(err) => return Err(ParseError::Other(err.into())),
-                Frame::Null => {
-                    return Err(ParseError::Other("can't push null values in array".into()));
-                }
-                Frame::Array(_) => {
-                    result.push_back(Data::Array(self.next_array()?));
-                }
-            }
-        }
-
-        Ok(result)
-    }
-
     /// Return the next array entry as raw bytes.
     ///
     /// error is returned if entry is not representable as raw bytes.
@@ -165,22 +160,6 @@ impl Parse {
                 "protocol error; expected simple or bulk string frame, got {frame:?}"
             )
             .into()),
-        }
-    }
-
-    /// Returns next array entry as String.
-    ///
-    /// error is returned if next entry can't be represented as String.
-    pub(crate) fn next_string(&mut self) -> Result<String, ParseError> {
-        match self.next()? {
-            // Both Simple and Bulk frames can be parsed to UTF-8.
-            Frame::Simple(data) | Frame::Bulk(data) => match str::from_utf8(&data[..]) {
-                Ok(str) => Ok(str.to_string()),
-                Err(_) => Err(format!("protocol error; invalid string").into()),
-            },
-            frame => {
-                Err(format!("protocol error; expected Simple or Bulk frame, got {frame:?}").into())
-            }
         }
     }
 
