@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::string::FromUtf8Error;
 use std::{io::Cursor, num::TryFromIntError};
 
-use crate::db::Data;
+use crate::db::{Data, optimize_storage};
 use crate::errors::WalrusError;
 use crate::parse;
 
@@ -426,7 +426,7 @@ impl TryFrom<Frame> for Data {
     fn try_from(src: Frame) -> Result<Self, Self::Error> {
         match src {
             Frame::Simple(string) => Ok(Data::String(string)),
-            Frame::Bulk(bytes) => Ok(crate::db::optimize_storage(bytes)),
+            Frame::Bulk(bytes) => Ok(optimize_storage(bytes)),
             Frame::Integer(val) => Ok(Data::Integer(val)),
             Frame::Double(val) => Ok(Data::Double(val)),
             // NOTE: This will flatten nested arrays.

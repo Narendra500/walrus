@@ -75,7 +75,6 @@ impl LPush {
                                 );
                             }
                             conn.write_data(&Data::Integer(list.len() as i64));
-                            db.notify_blocked(&key);
                         }
                         _ => conn.write_error_frame(WalrusError::WrongType.get_msg()),
                     }
@@ -101,7 +100,6 @@ impl LPush {
                                 list.push_front(data);
                             }
                             conn.write_data(&Data::Integer(list.len() as i64));
-                            db.notify_blocked(&key);
                         }
                         // Not an array.
                         _ => conn.write_error_frame(WalrusError::WrongType.get_msg()),
