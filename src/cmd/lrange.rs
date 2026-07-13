@@ -98,7 +98,7 @@ impl LRange {
             }
         } else {
             // No data with given key.
-            conn.write_null_frame();
+            conn.write_data_array(vec![].into_iter(), 0);
         }
 
         Ok(())
